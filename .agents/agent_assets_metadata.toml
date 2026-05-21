@@ -1,0 +1,26 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "zb3AO6kwrKtmVH0n37Mea"
+uri = "file://artifacts/cardvault/assets/images/icon.png"
+type = "image"
+title = "cardvault icon"
+
+[[generated]]
+id = "0lg8st52J2tdl5VNj57cy"
+uri = "file://artifacts/cardvault/assets/images/onboarding1.png"
+type = "image"
+title = "onboarding cards illustration"
+
+[[generated]]
+id = "4hpAtAwp9YcIz5cPIr30x"
+uri = "file://artifacts/cardvault/assets/images/onboarding2.png"
+type = "image"
+title = "onboarding verification illustration"
+
+[[generated]]
+id = "X6F5GK0ijQEOnAp9OCY_H"
+uri = "file://artifacts/cardvault/assets/images/onboarding3.png"
+type = "image"
+title = "onboarding privacy illustration"

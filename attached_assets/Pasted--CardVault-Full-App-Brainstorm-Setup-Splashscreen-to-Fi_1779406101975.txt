@@ -1,0 +1,314 @@
+## CardVault – Full App Brainstorm & Setup: Splashscreen to Finish
+
+### 1. App Overview
+
+**Tagline:** *Your cards. Your way. Verifiable, offline, private.*
+
+**Core promise:** Digitize any physical card (ID, health, loyalty, membership) with front/back photos + scannable barcode. Share a live, time-limited verification QR that guards scan with the free Reader app. Partners (gyms, universities) can push verified digital cards directly.
+
+**Target platforms:** iOS + Android (React Native). Reader PWA (optional).
+
+---
+
+### 2. User Journey – Full Flow
+
+```
+Splash Screen
+    ↓
+Onboarding (3 slides)
+    ↓
+Permission Requests (Camera, Notifications)
+    ↓
+Create Profile (Name, optional email for sync/backup)
+    ↓
+Home Screen (empty state → add first card)
+    ↓
+Add Card Flow:
+   Choose “Scan new card” or “Accept partner card”
+   → Scan front → Scan back (optional) → Auto-fill fields (OCR) or manual → Save
+    ↓
+Card Detail Screen (view front/back, barcode, verify button)
+    ↓
+Use Card:
+   Tap “Verify for guard” → Shows dynamic QR (60s expiry) → Guard scans with Reader
+   Or tap barcode to enlarge for self-checkout
+    ↓
+Expiry Management:
+   App checks daily → local notification 30/14/7/1 days before expiry
+   → Shows “How to renew” link or partner renewal button
+```
+
+---
+
+### 3. Screen-by-Screen Specification
+
+#### 3.1 Splash Screen
+- White background with CardVault logo + animated card icon flipping.
+- Checks for existing encrypted local data.
+- If first launch → go to Onboarding. If existing user → go to Home (requires PIN/biometric if enabled).
+
+#### 3.2 Onboarding (3 slides, skippable after first)
+1. **“All your cards in one place”** – illustration of student ID, NHIS, gym card merging into phone.
+2. **“Live verification, not a screenshot”** – show guard scanning QR with green VALID check.
+3. **“Private & offline”** – cards stay on your device, no cloud upload unless you enable backup.
+
+#### 3.3 Permissions Request Screen
+- Camera (scan cards, scan QR for partner invites)
+- Notifications (expiry reminders)
+- Face ID / Fingerprint (optional, for app lock)
+
+#### 3.4 Create Profile (minimal)
+- Display name (for sharing verification – appears on guard’s screen)
+- Optional: Email (for encrypted backup to iCloud/Google Drive)
+- Optional: Phone (for partner lookup)
+
+#### 3.5 Home Screen (Dashboard)
+- **Top:** Profile switcher (Personal / Work / Student) – each has separate card collections.
+- **Search bar** (filter cards by name, type, expiry).
+- **Card list** – each card shows:
+  - Small thumbnail of front image
+  - Card type icon (ID, Health, Loyalty, Membership)
+  - Name (e.g., “KNUST Student ID”)
+  - Expiry date (red if expired or <7 days)
+- **Floating Action Button (FAB)** – “+ Add Card” (opens scan or partner join).
+- **Bottom nav:** Home | Cards (grid view) | Notifications | Profile.
+
+#### 3.6 Add Card Flow
+
+**Step 1 – Choose method:**
+- Scan physical card (default)
+- Join partner card (enter institution code or scan QR from partner)
+
+**Step 2 – Scan front:**
+- Camera opens with bounding box overlay.
+- Auto-capture when stable (or manual shutter).
+- On capture, run OCR (Google ML Kit offline) to extract:
+  - Name
+  - ID number
+  - Expiry date
+  - Barcode/QR value (if detected)
+- Show preview with editable text fields.
+
+**Step 3 – Scan back (optional):**
+- Prompt: “Does this card have a back side?” Yes / No.
+- If Yes, capture back image (no OCR needed unless there’s a barcode).
+
+**Step 4 – Manual correction screen:**
+- Editable fields: Card Title (auto-suggested), Card Type (dropdown), Name on card, ID Number, Expiry Date, Notes.
+- Tap to re-crop images if needed.
+
+**Step 5 – Generate barcode:**
+- App recreates scannable barcode from ID number (supports CODE128, CODE39, QR, PDF417).
+- User can test barcode with device’s own camera.
+
+**Step 6 – Save:**
+- Encrypt all data locally (SQLite + AES-256).
+- Generate initial signed verification token (valid 24h).
+- Return to Home.
+
+#### 3.7 Card Detail Screen
+
+**Layout:**
+- **Top bar:** Back button, Edit (pencil), Delete (trash), Share (export encrypted backup).
+- **Card image carousel:** Front image (main), swipe left to see back image. Double-tap to zoom.
+- **Regenerated barcode** (live, enlarge button).
+- **Fields panel:**
+  - Card type badge
+  - Name (value)
+  - ID number (value)
+  - Expiry date (value + countdown badge)
+  - Notes (if any)
+- **Action buttons:**
+  - **Verify for guard** → opens dynamic QR code (see 3.8)
+  - **Renew / How to renew** (if partner integrated, shows payment; else shows instructions)
+  - **Rescan** (to update images or data)
+- **Health score:** (if AI enabled) “Good” / “Low contrast – rescan recommended”
+
+#### 3.8 Verification for Guard (Live QR)
+
+**When user taps “Verify for guard”:**
+- Screen dims slightly, shows a large QR code with:
+  - Animated dots moving around border (anti-screenshot)
+  - Text: “Show this to guard – expires in 60s”
+  - Countdown timer (visible to user)
+- Behind the QR is encoded:
+  - Signed token (card data + expiry timestamp + signature)
+  - One-time-use nonce (prevents replay)
+- Guard opens **CardVault Reader** (free app or PWA) → scans QR.
+- Reader decrypts token, checks signature against CardVault public key (cached), shows:
+  - User’s display name, photo (if any), ID number, expiry.
+  - “VALID until [time]” with green pulsing background.
+- After scan, QR invalidated locally (cannot be rescanned).
+- If offline: Reader uses cached public key and token’s signature (valid if token not expired).
+
+#### 3.9 Notifications Screen
+- List of upcoming expiry reminders (by card).
+- Swipe to dismiss reminder.
+- Tap a reminder to open that card’s detail screen.
+
+#### 3.10 Profile & Settings Screen
+
+**Sections:**
+- **Account:** Display name, email, phone (edit).
+- **Security:**
+  - Enable app lock (PIN / Biometric)
+  - Auto-lock after (1 min / 5 min)
+- **Backup & Restore:**
+  - Encrypted backup to iCloud/Google Drive (manual or automatic daily)
+  - Restore from backup
+- **Cards management:**
+  - Export all cards as encrypted ZIP
+  - Delete all data (factory reset)
+- **Partners:**
+  - List of connected institutions (gym, university)
+  - Revoke partner access (removes their issued cards)
+- **About:** Version, Privacy Policy, Terms, Contact.
+
+#### 3.11 Partner Dashboard (Separate Web App – for institutions)
+
+**Features:**
+- **Login** (email + MFA).
+- **Member management:**
+  - Upload CSV (name, email, phone, ID number, expiry, photo URL)
+  - Or sync via API from their existing system.
+- **Issue digital cards:** CardVault sends push notification to user’s app → card appears automatically with blue verified badge.
+- **Revoke:** Remove a user’s card if they lose phone or leave institution.
+- **Renewals:** Set custom renewal URL or enable in-app payment (via Stripe/Mobile Money).
+- **Analytics:** Number of active users, verification attempts, expiry alerts.
+- **Billing:** Subscription management.
+
+---
+
+### 4. Technical Setup & Architecture
+
+#### 4.1 Tech Stack
+
+| Layer | Choice |
+|-------|--------|
+| Mobile app | React Native + Expo (for faster dev) |
+| Local storage | Expo SQLite + SecureStore (for keys) |
+| Encryption | AES-256-GCM (keys derived from device + user PIN) |
+| OCR (offline) | Google ML Kit Text Recognition |
+| Barcode gen | `react-native-barcode-builder` |
+| Crypto signatures | Ed25519 (via `expo-crypto` + `tweetnacl`) |
+| Backend (minimal) | Supabase (only for partner API, token revocation lists, push notifications) |
+| Push notifications | Expo Notifications (or Firebase) |
+| Backup | iCloud Drive / Google Drive (via `expo-file-system` + `expo-document-picker`) |
+| Reader app | Same React Native codebase, different entry point (or pure PWA) |
+
+#### 4.2 Data Schema (Local SQLite Table: `cards`)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | string (UUID) | Primary key |
+| profile_id | string | “personal”, “work”, “student” |
+| card_type | string | “id”, “health”, “loyalty”, “membership” |
+| title | string | User-assigned or auto “KNUST ID” |
+| name_on_card | string | Extracted from OCR |
+| id_number | string | Extracted |
+| expiry_date | integer (Unix timestamp) | |
+| front_image_uri | string | Local file path (encrypted) |
+| back_image_uri | string | Optional |
+| barcode_format | string | “code128”, “qr”, etc. |
+| barcode_value | string | Usually id_number |
+| notes | text | Optional |
+| is_partner_issued | boolean | If true, shows verified badge |
+| partner_id | string | If issued by partner |
+| last_verified_token | blob | Signed token (refreshed daily) |
+| created_at | integer | |
+| updated_at | integer | |
+
+#### 4.3 Signed Token Format (for verification)
+
+```json
+{
+  "card_id": "uuid",
+  "display_name": "Kwame Asare",
+  "id_number": "12345678",
+  "expiry": 1735689600,
+  "issued_at": 1704153600,
+  "nonce": "random-64-byte",
+  "card_photo_hash": "sha256(optional)"
+}
+```
+Signed with CardVault’s Ed25519 private key. Token validity = 24 hours (or shorter for one-time QR).
+
+#### 4.4 Security Architecture
+
+- **No server-side storage** of raw card images or extracted data (except partner-issued cards metadata – name, ID, expiry, no photo).
+- **All encryption/decryption on device.** Backup files are encrypted before leaving device.
+- **Reader app** never sends data to any server – only verifies signatures locally using cached public key.
+- **Token revocation:** If user loses phone, they can log into CardVault web (using email) and request revocation of all tokens for that device. Partner can also revoke their issued cards.
+
+---
+
+### 5. Development Phases (MVP to Full)
+
+#### Phase 1 (Weeks 1-3): Core MVP
+- Splash, onboarding, home screen (static cards).
+- Manual card entry (no OCR).
+- Front/back photos, barcode generation.
+- Local encryption & SQLite.
+- Verification: dynamic QR + Reader PWA (basic signature check).
+- **No partner integration, no AI, no backup.**
+
+#### Phase 2 (Weeks 4-6): Essential enhancements
+- Google ML Kit OCR (auto-fill from front scan).
+- Expiry notifications (local).
+- App lock (PIN/biometric).
+- Encrypted backup to local file (manual export/import).
+
+#### Phase 3 (Weeks 7-9): Partner & cloud
+- Supabase backend (partner auth, member sync API).
+- Push notifications for partner-issued cards.
+- Partner dashboard (web).
+- In-app renewal button for partners (redirect to payment).
+
+#### Phase 4 (Weeks 10-12): Polish & store release
+- Offline token refresh & revocation.
+- Card health score (basic blur detection).
+- Reader app on App Store/Play Store.
+- Beta testing in Ghana (KNUST pilot).
+
+---
+
+### 6. Reader App (for guards) – Separate but Simple
+
+**Screen:**
+- Camera viewfinder (scan QR).
+- When QR scanned → decode token → verify signature → display result (VALID/INVALID/EXPIRED).
+- No login, no data storage, no network required (after public key cached at install).
+- Option to cache public key via QR (institution can load their own key for air-gapped use).
+
+**Public key distribution:**
+- CardVault public key is hardcoded in Reader (updated via app store).
+- Advanced: allow institution to load their own key for offline verification of their own issued cards (bypassing CardVault entirely).
+
+---
+
+### 7. What the final product looks like (User’s words)
+
+> “I open CardVault, see my KNUST ID and NHIS card. Tap the ID, then ‘Verify for guard’. A big QR appears with a moving border. The library guard opens the free CardVault Reader app on their phone, scans it, and sees my photo and ‘VALID’ in green. I walk in. No plastic needed.”
+
+> “My gym joined CardVault. I got a notification: ‘Your gym card is now digital’. It appears with a blue checkmark. When my membership expires, the app shows a ‘Renew for GHS 100’ button. I pay with Momo, and the expiry updates automatically.”
+
+---
+
+### 8. Risks & Mitigations (Reminder)
+
+| Risk | Mitigation |
+|------|-------------|
+| Guard refuses QR | Pilot with one gate; train staff; offer plastic backup as fallback |
+| Screenshot replay | Moving pattern + one-time nonce + reader checks timestamp |
+| Phone lost | Remote revocation via email; partner can revoke; tokens expire daily |
+| Legal (forgery) | Clear ToS: “User affirms they own the physical card. CardVault does not assert validity.” |
+
+---
+
+### 9. Immediate Next Steps (for you)
+
+1. **Validate verification flow** – build a clickable prototype (Figma) and show it to 5 security guards. Do they understand the Reader screen?
+2. **Choose pilot partner** – one local gym or university department willing to accept QR for 1 month.
+3. **Build Reader PWA first** (2 days) – because without the verifier, the app is useless.
+4. **Then build the user app** with manual entry only.
+
