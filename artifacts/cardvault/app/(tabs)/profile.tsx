@@ -1,4 +1,4 @@
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import React, { useState } from 'react';
 import {
@@ -15,7 +15,17 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCards } from '@/contexts/CardContext';
 import { useProfile } from '@/contexts/ProfileContext';
+import {
+  cancelAllNotifications,
+  requestNotificationPermission,
+  scheduleExpiryNotifications,
+} from '@/lib/notifications';
 import { useColors } from '@/hooks/useColors';
+
+async function getBiometrics() {
+  if (Platform.OS === 'web') return null;
+  try { return await import('expo-local-authentication'); } catch { return null; }
+}
 
 export default function ProfileScreen() {
   const colors = useColors();
@@ -32,6 +42,48 @@ export default function ProfileScreen() {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     updateProfile({ displayName: name, email });
     setEditing(false);
+  };
+
+  const handleAppLockToggle = async (val: boolean) => {
+    if (val && Platform.OS !== 'web') {
+      const LA = await getBiometrics();
+      if (!LA) { updateProfile({ appLockEnabled: true }); return; }
+      const enrolled = await LA.isEnrolledAsync();
+      if (!enrolled) {
+        Alert.alert(
+          'No Biometrics Found',
+          'Set up Face ID, Touch ID, or a device passcode in your device settings first.',
+        );
+        return;
+      }
+      const result = await LA.authenticateAsync({
+        promptMessage: 'Confirm to enable App Lock',
+        fallbackLabel: 'Use Passcode',
+        disableDeviceFallback: false,
+      });
+      if (!result.success) return;
+    }
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    updateProfile({ appLockEnabled: val });
+  };
+
+  const handleNotificationsToggle = async (val: boolean) => {
+    if (val) {
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        Alert.alert(
+          'Permission Required',
+          'Enable notifications in your device settings to receive expiry reminders.',
+        );
+        return;
+      }
+      updateProfile({ notificationsEnabled: true });
+      await scheduleExpiryNotifications(cards);
+    } else {
+      updateProfile({ notificationsEnabled: false });
+      await cancelAllNotifications();
+    }
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const totalCards = cards.length;
@@ -138,12 +190,39 @@ export default function ProfileScreen() {
           <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>SECURITY</Text>
           <View style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Ionicons name="lock-closed-outline" size={20} color={colors.primary} />
-            <Text style={[styles.rowText, { color: colors.foreground }]}>App Lock</Text>
+            <View style={styles.rowContent}>
+              <Text style={[styles.rowText, { color: colors.foreground }]}>App Lock</Text>
+              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>
+                {Platform.OS === 'web' ? 'Native only' : 'Biometrics or passcode'}
+              </Text>
+            </View>
             <Switch
               value={profile.appLockEnabled}
-              onValueChange={(v) => updateProfile({ appLockEnabled: v })}
+              onValueChange={handleAppLockToggle}
+              disabled={Platform.OS === 'web'}
               trackColor={{ false: colors.muted, true: colors.primary + 'AA' }}
               thumbColor={profile.appLockEnabled ? colors.primary : colors.mutedForeground}
+            />
+          </View>
+        </View>
+
+        {/* Notifications section */}
+        <View style={styles.sectionGroup}>
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>NOTIFICATIONS</Text>
+          <View style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+            <View style={styles.rowContent}>
+              <Text style={[styles.rowText, { color: colors.foreground }]}>Expiry Reminders</Text>
+              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>
+                {Platform.OS === 'web' ? 'Native only' : '30 & 7 days before expiry'}
+              </Text>
+            </View>
+            <Switch
+              value={profile.notificationsEnabled}
+              onValueChange={handleNotificationsToggle}
+              disabled={Platform.OS === 'web'}
+              trackColor={{ false: colors.muted, true: colors.primary + 'AA' }}
+              thumbColor={profile.notificationsEnabled ? colors.primary : colors.mutedForeground}
             />
           </View>
         </View>
@@ -166,7 +245,6 @@ export default function ProfileScreen() {
               <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
             </TouchableOpacity>
           ))}
-
           <View style={[styles.versionRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Ionicons name="information-circle-outline" size={20} color={colors.mutedForeground} />
             <Text style={[styles.rowText, { color: colors.foreground }]}>Version</Text>
@@ -214,18 +292,10 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   editActions: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 4 },
-  saveBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 7,
-    borderRadius: 8,
-  },
+  saveBtn: { paddingHorizontal: 18, paddingVertical: 7, borderRadius: 8 },
   saveBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
   cancelText: { fontSize: 13, fontFamily: 'Inter_500Medium' },
-  stats: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 24,
-  },
+  stats: { flexDirection: 'row', gap: 8, marginBottom: 24 },
   statItem: {
     flex: 1,
     alignItems: 'center',
@@ -254,7 +324,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 2,
   },
-  rowText: { flex: 1, fontSize: 15, fontFamily: 'Inter_400Regular' },
+  rowContent: { flex: 1 },
+  rowText: { fontSize: 15, fontFamily: 'Inter_400Regular' },
+  rowSub: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 1 },
   versionRow: {
     flexDirection: 'row',
     alignItems: 'center',

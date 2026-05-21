@@ -27,6 +27,7 @@ export interface UserProfile {
   activeProfile: ProfileType;
   hasCompletedOnboarding: boolean;
   appLockEnabled: boolean;
+  notificationsEnabled: boolean;
 }
 
 export type ExpiryStatus = 'valid' | 'expiring' | 'expired';

@@ -11,6 +11,7 @@ const defaultProfile: UserProfile = {
   activeProfile: 'personal',
   hasCompletedOnboarding: false,
   appLockEnabled: false,
+  notificationsEnabled: false,
 };
 
 interface ProfileContextValue {
