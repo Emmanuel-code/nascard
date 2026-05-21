@@ -1,13 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import QRCode from 'react-native-qrcode-svg';
 import React, { useState } from 'react';
 import {
   Alert,
   Dimensions,
   FlatList,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -19,6 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CardTypeIcon } from '@/components/CardTypeIcon';
 import { useCards } from '@/contexts/CardContext';
 import { useColors } from '@/hooks/useColors';
+import type { SharedCardPayload } from '@/app/share/[token]';
 import { formatExpiry, getDaysUntilExpiry, getExpiryStatus } from '@/types/card';
 
 const { width } = Dimensions.get('window');
@@ -36,6 +40,20 @@ const PROFILE_LABELS: Record<string, string> = {
   student: 'Student',
 };
 
+function buildShareToken(payload: SharedCardPayload): string {
+  return btoa(JSON.stringify(payload));
+}
+
+function buildShareUrl(token: string): string {
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin;
+    return `${origin}/share/${token}`;
+  }
+  const domain = process.env.EXPO_PUBLIC_DOMAIN;
+  if (domain) return `https://${domain}/share/${token}`;
+  return `cardvault://share/${token}`;
+}
+
 export default function CardDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
@@ -44,6 +62,8 @@ export default function CardDetailScreen() {
   const { getCard, deleteCard } = useCards();
   const card = getCard(id ?? '');
   const [imageIndex, setImageIndex] = useState(0);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
@@ -66,6 +86,37 @@ export default function CardDetailScreen() {
     status === 'expired' ? colors.expired : status === 'expiring' ? colors.warning : colors.verified;
 
   const images = [card.frontImageUri, card.backImageUri].filter(Boolean) as string[];
+
+  const sharePayload: SharedCardPayload = {
+    v: 1,
+    title: card.title,
+    nameOnCard: card.nameOnCard,
+    idNumber: card.idNumber,
+    expiryDate: card.expiryDate,
+    cardType: card.cardType,
+    sharedAt: Date.now(),
+  };
+  const shareToken = buildShareToken(sharePayload);
+  const shareUrl = buildShareUrl(shareToken);
+
+  const handleShare = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const canShare = await Sharing.isAvailableAsync();
+    if (canShare && Platform.OS !== 'web') {
+      await Sharing.shareAsync(shareUrl, {
+        dialogTitle: `Share ${card.title}`,
+      });
+    } else {
+      setShareModalVisible(true);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    await Clipboard.setStringAsync(shareUrl);
+    setCopied(true);
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setTimeout(() => setCopied(false), 2500);
+  };
 
   const handleDelete = () => {
     Alert.alert(
@@ -163,7 +214,6 @@ export default function CardDetailScreen() {
 
         {/* Card info */}
         <View style={[styles.infoCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {/* Type + profile row */}
           <View style={styles.typeRow}>
             <CardTypeIcon cardType={card.cardType} size={36} />
             <View style={styles.typeInfo}>
@@ -184,7 +234,6 @@ export default function CardDetailScreen() {
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-          {/* Fields */}
           {[
             { label: 'Name on card', value: card.nameOnCard },
             { label: 'ID Number', value: card.idNumber },
@@ -241,31 +290,106 @@ export default function CardDetailScreen() {
                 backgroundColor={colors.card}
               />
             </View>
-            <Text style={[styles.barcodeValue, { color: colors.mutedForeground }]}>
+            <Text style={[styles.barcodeValueText, { color: colors.mutedForeground }]}>
               {card.barcodeValue}
             </Text>
           </View>
         ) : null}
 
-        {/* Verify button */}
-        <TouchableOpacity
-          onPress={async () => {
-            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-            router.push(`/verify/${card.id}`);
-          }}
-          style={[styles.verifyBtn, { backgroundColor: colors.primary }]}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="qr-code" size={22} color={colors.primaryForeground} />
-          <Text style={[styles.verifyBtnText, { color: colors.primaryForeground }]}>
-            Verify for Guard
-          </Text>
-        </TouchableOpacity>
+        {/* Action buttons */}
+        <View style={styles.actionRow}>
+          <TouchableOpacity
+            onPress={async () => {
+              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+              router.push(`/verify/${card.id}`);
+            }}
+            style={[styles.verifyBtn, { backgroundColor: colors.primary }]}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="qr-code" size={20} color={colors.primaryForeground} />
+            <Text style={[styles.verifyBtnText, { color: colors.primaryForeground }]}>
+              Verify for Guard
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handleShare}
+            style={[styles.shareBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="share-outline" size={20} color={colors.foreground} />
+          </TouchableOpacity>
+        </View>
 
         <Text style={[styles.verifyHint, { color: colors.mutedForeground }]}>
-          Generates a 60-second QR code for live verification
+          60-second QR for live verification · Share sends a read-only link
         </Text>
       </ScrollView>
+
+      {/* Share modal */}
+      <Modal
+        visible={shareModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShareModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setShareModalVisible(false)}
+        />
+        <View style={[styles.modalSheet, { backgroundColor: colors.card, paddingBottom: bottomPad + 24 }]}>
+          <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
+
+          <Text style={[styles.modalTitle, { color: colors.foreground }]}>Share Card</Text>
+          <Text style={[styles.modalSub, { color: colors.mutedForeground }]}>
+            Anyone with this link can view a read-only version of your card. No images are shared.
+          </Text>
+
+          {/* QR code of the share URL */}
+          <View style={[styles.shareQrWrap, { borderColor: colors.border }]}>
+            <QRCode
+              value={shareUrl}
+              size={180}
+              color={colors.foreground}
+              backgroundColor={colors.card}
+            />
+          </View>
+
+          {/* Link row */}
+          <View style={[styles.linkRow, { backgroundColor: colors.background, borderColor: colors.border }]}>
+            <Text
+              style={[styles.linkText, { color: colors.mutedForeground }]}
+              numberOfLines={1}
+              ellipsizeMode="middle"
+            >
+              {shareUrl}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            onPress={handleCopyLink}
+            style={[
+              styles.copyBtn,
+              { backgroundColor: copied ? colors.verified : colors.primary },
+            ]}
+            activeOpacity={0.85}
+          >
+            <Ionicons
+              name={copied ? 'checkmark' : 'copy-outline'}
+              size={18}
+              color={copied ? '#fff' : colors.primaryForeground}
+            />
+            <Text style={[styles.copyBtnText, { color: copied ? '#fff' : colors.primaryForeground }]}>
+              {copied ? 'Copied!' : 'Copy Link'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => setShareModalVisible(false)} style={styles.dismissBtn}>
+            <Text style={[styles.dismissText, { color: colors.mutedForeground }]}>Dismiss</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -285,7 +409,7 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { flex: 1, fontSize: 17, fontFamily: 'Inter_600SemiBold', textAlign: 'center' },
   scroll: { paddingHorizontal: 20, gap: 14 },
-  carouselWrap: { position: 'relative', marginBottom: 0 },
+  carouselWrap: { position: 'relative' },
   cardImage: {
     height: (width - 40) / 1.585,
     borderRadius: 14,
@@ -356,21 +480,72 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     alignSelf: 'flex-start',
   },
-  barcodeWrap: {
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: 'transparent',
-  },
-  barcodeValue: { fontSize: 13, fontFamily: 'Inter_400Regular', letterSpacing: 1.5 },
+  barcodeWrap: { padding: 16, borderRadius: 12 },
+  barcodeValueText: { fontSize: 13, fontFamily: 'Inter_400Regular', letterSpacing: 1.5 },
+  actionRow: { flexDirection: 'row', gap: 10 },
   verifyBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    height: 56,
-    borderRadius: 28,
-    marginTop: 4,
+    gap: 8,
+    height: 54,
+    borderRadius: 27,
   },
-  verifyBtnText: { fontSize: 17, fontFamily: 'Inter_600SemiBold' },
+  verifyBtnText: { fontSize: 16, fontFamily: 'Inter_600SemiBold' },
+  shareBtn: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   verifyHint: { fontSize: 12, fontFamily: 'Inter_400Regular', textAlign: 'center' },
+  // Modal
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    alignItems: 'center',
+    gap: 14,
+  },
+  modalHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    marginBottom: 8,
+  },
+  modalTitle: { fontSize: 20, fontFamily: 'Inter_700Bold' },
+  modalSub: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 19 },
+  shareQrWrap: {
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  linkRow: {
+    width: '100%',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  linkText: { fontSize: 13, fontFamily: 'Inter_400Regular' },
+  copyBtn: {
+    width: '100%',
+    height: 50,
+    borderRadius: 25,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  copyBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
+  dismissBtn: { paddingVertical: 4 },
+  dismissText: { fontSize: 14, fontFamily: 'Inter_500Medium' },
 });

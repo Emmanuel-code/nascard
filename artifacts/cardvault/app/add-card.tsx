@@ -1,5 +1,4 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
@@ -50,14 +49,23 @@ interface FormData {
 
 type OcrStatus = 'idle' | 'scanning' | 'done' | 'failed';
 
+async function uriToBase64(uri: string): Promise<string> {
+  // On web, expo-image-picker returns a data URI; extract the base64 part
+  if (uri.startsWith('data:')) {
+    return uri.split(',')[1] ?? '';
+  }
+  // On native, read the file using expo-file-system
+  const { readAsStringAsync, EncodingType } = await import('expo-file-system');
+  return readAsStringAsync(uri, { encoding: EncodingType.Base64 });
+}
+
 async function scanCardImage(
   imageUri: string,
   cardType: CardType,
 ): Promise<{ title: string; nameOnCard: string; idNumber: string; expiryDate: string } | null> {
   try {
-    const base64 = await FileSystem.readAsStringAsync(imageUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
+    const base64 = await uriToBase64(imageUri);
+    if (!base64) return null;
 
     const apiBase = process.env.EXPO_PUBLIC_DOMAIN
       ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`

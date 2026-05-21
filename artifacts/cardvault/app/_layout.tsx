@@ -9,8 +9,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { CardProvider } from '@/contexts/CardContext';
@@ -23,18 +23,19 @@ const queryClient = new QueryClient();
 function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="index" options={{ headerShown: false }} />
-      <Stack.Screen name="onboarding" options={{ headerShown: false, animation: 'fade' }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="index" />
+      <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
+      <Stack.Screen name="(tabs)" />
       <Stack.Screen
         name="add-card"
-        options={{ headerShown: false, presentation: 'modal', animation: 'slide_from_bottom' }}
+        options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
       />
-      <Stack.Screen name="card/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="card/[id]" />
       <Stack.Screen
         name="verify/[id]"
-        options={{ headerShown: false, presentation: 'fullScreenModal' }}
+        options={{ presentation: 'fullScreenModal' }}
       />
+      <Stack.Screen name="share/[token]" />
     </Stack>
   );
 }
@@ -55,16 +56,14 @@ export default function RootLayout() {
 
   if (!fontsLoaded && !fontError) return null;
 
-  return (
+  const inner = (
     <SafeAreaProvider>
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
           <ProfileProvider>
             <CardProvider>
               <GestureHandlerRootView style={{ flex: 1 }}>
-                <KeyboardProvider>
-                  <RootLayoutNav />
-                </KeyboardProvider>
+                <RootLayoutNav />
               </GestureHandlerRootView>
             </CardProvider>
           </ProfileProvider>
@@ -72,4 +71,12 @@ export default function RootLayout() {
       </ErrorBoundary>
     </SafeAreaProvider>
   );
+
+  // KeyboardProvider requires native modules — only wrap on native
+  if (Platform.OS !== 'web') {
+    const { KeyboardProvider } = require('react-native-keyboard-controller');
+    return <KeyboardProvider>{inner}</KeyboardProvider>;
+  }
+
+  return inner;
 }

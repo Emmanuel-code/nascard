@@ -56,7 +56,9 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
-    "expo-file-system": "^56.0.6",
+    "expo-clipboard": "^8.0.8",
+    "expo-file-system": "^19.0.22",
+    "expo-sharing": "^14.0.8",
     "react-native-qrcode-svg": "^6.3.21"
   }
 }
