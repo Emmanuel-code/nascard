@@ -1,9 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import * as Sharing from 'expo-sharing';
 import QRCode from 'react-native-qrcode-svg';
 import React, { useState } from 'react';
 import {
@@ -101,18 +99,30 @@ export default function CardDetailScreen() {
 
   const handleShare = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const canShare = await Sharing.isAvailableAsync();
-    if (canShare && Platform.OS !== 'web') {
-      await Sharing.shareAsync(shareUrl, {
-        dialogTitle: `Share ${card.title}`,
-      });
-    } else {
-      setShareModalVisible(true);
+    if (Platform.OS !== 'web') {
+      try {
+        const Sharing = await import('expo-sharing');
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare) {
+          await Sharing.shareAsync(shareUrl, { dialogTitle: `Share ${card.title}` });
+          return;
+        }
+      } catch {}
     }
+    setShareModalVisible(true);
   };
 
   const handleCopyLink = async () => {
-    await Clipboard.setStringAsync(shareUrl);
+    try {
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(shareUrl);
+      } else {
+        const Clipboard = await import('expo-clipboard');
+        await Clipboard.setStringAsync(shareUrl);
+      }
+    } catch {
+      // fallback: show link so user can copy manually
+    }
     setCopied(true);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setTimeout(() => setCopied(false), 2500);
