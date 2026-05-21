@@ -1,10 +1,12 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -19,7 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCards } from '@/contexts/CardContext';
 import { useProfile } from '@/contexts/ProfileContext';
 import { useColors } from '@/hooks/useColors';
-import type { CardType, ProfileType } from '@/types/card';
+import type { CardType } from '@/types/card';
 
 const CARD_TYPES: { key: CardType; label: string; icon: string; lib: 'ionicons' | 'mci' }[] = [
   { key: 'id', label: 'ID Card', icon: 'card-account-details', lib: 'mci' },
@@ -46,6 +48,34 @@ interface FormData {
   backImageUri: string | null;
 }
 
+type OcrStatus = 'idle' | 'scanning' | 'done' | 'failed';
+
+async function scanCardImage(
+  imageUri: string,
+  cardType: CardType,
+): Promise<{ title: string; nameOnCard: string; idNumber: string; expiryDate: string } | null> {
+  try {
+    const base64 = await FileSystem.readAsStringAsync(imageUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    const apiBase = process.env.EXPO_PUBLIC_DOMAIN
+      ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
+      : '';
+
+    const res = await fetch(`${apiBase}/api/ocr/scan-card`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64: base64, cardType }),
+    });
+
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 export default function AddCardScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -53,6 +83,7 @@ export default function AddCardScreen() {
   const { addCard } = useCards();
   const { profile } = useProfile();
   const [step, setStep] = useState(0);
+  const [ocrStatus, setOcrStatus] = useState<OcrStatus>('idle');
 
   const [form, setForm] = useState<FormData>({
     cardType: 'id',
@@ -105,6 +136,28 @@ export default function AddCardScreen() {
     return null;
   };
 
+  const handleFrontImageCaptured = async (uri: string) => {
+    setForm((f) => ({ ...f, frontImageUri: uri }));
+    setOcrStatus('scanning');
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    const result = await scanCardImage(uri, form.cardType);
+
+    if (result) {
+      setForm((f) => ({
+        ...f,
+        title: result.title || f.title,
+        nameOnCard: result.nameOnCard || f.nameOnCard,
+        idNumber: result.idNumber || f.idNumber,
+        expiryDate: result.expiryDate || f.expiryDate,
+      }));
+      setOcrStatus('done');
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } else {
+      setOcrStatus('failed');
+    }
+  };
+
   const handleSave = async () => {
     if (!form.title.trim()) {
       Alert.alert('Missing info', 'Please enter a card title.');
@@ -136,6 +189,10 @@ export default function AddCardScreen() {
     }
   };
 
+  const handleContinueFromFront = () => {
+    setStep(2);
+  };
+
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       {/* Header */}
@@ -144,7 +201,13 @@ export default function AddCardScreen() {
           <Ionicons name={step === 0 ? 'close' : 'arrow-back'} size={24} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>
-          {step === 0 ? 'Card Type' : step === 1 ? 'Front Image' : step === 2 ? 'Back Image' : 'Card Details'}
+          {step === 0
+            ? 'Card Type'
+            : step === 1
+              ? 'Front Image'
+              : step === 2
+                ? 'Back Image'
+                : 'Card Details'}
         </Text>
         <View style={styles.backBtn} />
       </View>
@@ -165,7 +228,7 @@ export default function AddCardScreen() {
         ))}
       </View>
 
-      {/* Steps */}
+      {/* ── Step 0: Card type ── */}
       {step === 0 && (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <Text style={[styles.stepTitle, { color: colors.foreground }]}>What type of card?</Text>
@@ -209,11 +272,12 @@ export default function AddCardScreen() {
         </ScrollView>
       )}
 
+      {/* ── Step 1: Front image + OCR ── */}
       {step === 1 && (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <Text style={[styles.stepTitle, { color: colors.foreground }]}>Front of card</Text>
           <Text style={[styles.stepSub, { color: colors.mutedForeground }]}>
-            Take a photo or upload from your gallery
+            Take a photo — we'll auto-fill the details for you
           </Text>
 
           {form.frontImageUri ? (
@@ -224,17 +288,48 @@ export default function AddCardScreen() {
                 contentFit="cover"
               />
               <TouchableOpacity
-                onPress={() => setForm({ ...form, frontImageUri: null })}
+                onPress={() => {
+                  setForm((f) => ({ ...f, frontImageUri: null }));
+                  setOcrStatus('idle');
+                }}
                 style={[styles.removeImageBtn, { backgroundColor: colors.destructive }]}
               >
                 <Ionicons name="close" size={16} color="#fff" />
               </TouchableOpacity>
+
+              {/* OCR status banner */}
+              {ocrStatus === 'scanning' && (
+                <View style={[styles.ocrBanner, { backgroundColor: colors.primary + 'EE' }]}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={styles.ocrBannerText}>Scanning card with AI…</Text>
+                </View>
+              )}
+              {ocrStatus === 'done' && (
+                <View style={[styles.ocrBanner, { backgroundColor: '#00C896EE' }]}>
+                  <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                  <Text style={styles.ocrBannerText}>Details auto-filled!</Text>
+                </View>
+              )}
+              {ocrStatus === 'failed' && (
+                <View style={[styles.ocrBanner, { backgroundColor: '#EF4444EE' }]}>
+                  <Ionicons name="alert-circle" size={16} color="#fff" />
+                  <Text style={styles.ocrBannerText}>Scan failed — fill in manually</Text>
+                </View>
+              )}
             </View>
           ) : (
-            <View style={[styles.imagePlaceholder, { borderColor: colors.border, backgroundColor: colors.card }]}>
-              <Ionicons name="card-outline" size={48} color={colors.mutedForeground} />
+            <View
+              style={[
+                styles.imagePlaceholder,
+                { borderColor: colors.border, backgroundColor: colors.card },
+              ]}
+            >
+              <Ionicons name="scan" size={44} color={colors.mutedForeground} />
               <Text style={[styles.imagePlaceholderText, { color: colors.mutedForeground }]}>
-                No image yet
+                Photograph your card
+              </Text>
+              <Text style={[styles.imagePlaceholderHint, { color: colors.mutedForeground }]}>
+                AI will read name, ID number & expiry
               </Text>
             </View>
           )}
@@ -243,7 +338,7 @@ export default function AddCardScreen() {
             <TouchableOpacity
               onPress={async () => {
                 const uri = await pickImage('camera');
-                if (uri) setForm({ ...form, frontImageUri: uri });
+                if (uri) await handleFrontImageCaptured(uri);
               }}
               style={[styles.imgBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
               activeOpacity={0.8}
@@ -254,7 +349,7 @@ export default function AddCardScreen() {
             <TouchableOpacity
               onPress={async () => {
                 const uri = await pickImage('gallery');
-                if (uri) setForm({ ...form, frontImageUri: uri });
+                if (uri) await handleFrontImageCaptured(uri);
               }}
               style={[styles.imgBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
               activeOpacity={0.8}
@@ -263,9 +358,18 @@ export default function AddCardScreen() {
               <Text style={[styles.imgBtnText, { color: colors.foreground }]}>Gallery</Text>
             </TouchableOpacity>
           </View>
+
+          {/* OCR hint */}
+          <View style={[styles.ocrHint, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Ionicons name="sparkles" size={16} color={colors.primary} />
+            <Text style={[styles.ocrHintText, { color: colors.mutedForeground }]}>
+              Powered by GPT-4o Vision — your image is sent once for scanning and not stored
+            </Text>
+          </View>
         </ScrollView>
       )}
 
+      {/* ── Step 2: Back image ── */}
       {step === 2 && (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <Text style={[styles.stepTitle, { color: colors.foreground }]}>Back of card</Text>
@@ -281,14 +385,19 @@ export default function AddCardScreen() {
                 contentFit="cover"
               />
               <TouchableOpacity
-                onPress={() => setForm({ ...form, backImageUri: null })}
+                onPress={() => setForm((f) => ({ ...f, backImageUri: null }))}
                 style={[styles.removeImageBtn, { backgroundColor: colors.destructive }]}
               >
                 <Ionicons name="close" size={16} color="#fff" />
               </TouchableOpacity>
             </View>
           ) : (
-            <View style={[styles.imagePlaceholder, { borderColor: colors.border, backgroundColor: colors.card }]}>
+            <View
+              style={[
+                styles.imagePlaceholder,
+                { borderColor: colors.border, backgroundColor: colors.card },
+              ]}
+            >
               <Ionicons name="card-outline" size={48} color={colors.mutedForeground} />
               <Text style={[styles.imagePlaceholderText, { color: colors.mutedForeground }]}>
                 No back image
@@ -300,7 +409,7 @@ export default function AddCardScreen() {
             <TouchableOpacity
               onPress={async () => {
                 const uri = await pickImage('camera');
-                if (uri) setForm({ ...form, backImageUri: uri });
+                if (uri) setForm((f) => ({ ...f, backImageUri: uri }));
               }}
               style={[styles.imgBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
             >
@@ -310,7 +419,7 @@ export default function AddCardScreen() {
             <TouchableOpacity
               onPress={async () => {
                 const uri = await pickImage('gallery');
-                if (uri) setForm({ ...form, backImageUri: uri });
+                if (uri) setForm((f) => ({ ...f, backImageUri: uri }));
               }}
               style={[styles.imgBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
             >
@@ -321,6 +430,7 @@ export default function AddCardScreen() {
         </ScrollView>
       )}
 
+      {/* ── Step 3: Details (pre-filled by OCR) ── */}
       {step === 3 && (
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -328,38 +438,62 @@ export default function AddCardScreen() {
         >
           <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
             <Text style={[styles.stepTitle, { color: colors.foreground }]}>Card details</Text>
-            <Text style={[styles.stepSub, { color: colors.mutedForeground }]}>
-              Enter the information printed on your card
-            </Text>
+
+            {ocrStatus === 'done' ? (
+              <View style={[styles.ocrSuccessBanner, { backgroundColor: '#00C896' + '18', borderColor: '#00C896' + '44' }]}>
+                <Ionicons name="sparkles" size={15} color="#00C896" />
+                <Text style={[styles.ocrSuccessText, { color: '#00C896' }]}>
+                  Auto-filled by AI — review and edit if needed
+                </Text>
+              </View>
+            ) : (
+              <Text style={[styles.stepSub, { color: colors.mutedForeground }]}>
+                Enter the information printed on your card
+              </Text>
+            )}
 
             {[
-              { label: 'Card Title *', key: 'title', placeholder: 'e.g. KNUST Student ID', required: true },
-              { label: 'Name on Card', key: 'nameOnCard', placeholder: 'As printed on card' },
-              { label: 'ID / Card Number', key: 'idNumber', placeholder: 'Used to generate barcode' },
-              { label: 'Expiry Date', key: 'expiryDate', placeholder: 'YYYY-MM-DD' },
-              { label: 'Notes', key: 'notes', placeholder: 'Optional notes' },
-            ].map((field) => (
-              <View key={field.key} style={styles.fieldGroup}>
-                <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>
-                  {field.label}
-                </Text>
-                <TextInput
-                  value={form[field.key as keyof FormData] as string}
-                  onChangeText={(v) => setForm({ ...form, [field.key]: v })}
-                  placeholder={field.placeholder}
-                  placeholderTextColor={colors.mutedForeground}
-                  style={[
-                    styles.fieldInput,
-                    {
-                      color: colors.foreground,
-                      backgroundColor: colors.card,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                  autoCapitalize={field.key === 'idNumber' ? 'characters' : 'words'}
-                />
-              </View>
-            ))}
+              { label: 'Card Title *', key: 'title', placeholder: 'e.g. KNUST Student ID', caps: 'words' as const },
+              { label: 'Name on Card', key: 'nameOnCard', placeholder: 'As printed on card', caps: 'words' as const },
+              { label: 'ID / Card Number', key: 'idNumber', placeholder: 'Used to generate barcode', caps: 'characters' as const },
+              { label: 'Expiry Date', key: 'expiryDate', placeholder: 'YYYY-MM-DD', caps: 'none' as const },
+              { label: 'Notes', key: 'notes', placeholder: 'Optional notes', caps: 'sentences' as const },
+            ].map((field) => {
+              const hasOcrValue =
+                ocrStatus === 'done' &&
+                field.key !== 'notes' &&
+                !!(form[field.key as keyof FormData] as string);
+              return (
+                <View key={field.key} style={styles.fieldGroup}>
+                  <View style={styles.fieldLabelRow}>
+                    <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>
+                      {field.label}
+                    </Text>
+                    {hasOcrValue && (
+                      <View style={styles.ocrTag}>
+                        <Ionicons name="sparkles" size={10} color={colors.primary} />
+                        <Text style={[styles.ocrTagText, { color: colors.primary }]}>AI</Text>
+                      </View>
+                    )}
+                  </View>
+                  <TextInput
+                    value={form[field.key as keyof FormData] as string}
+                    onChangeText={(v) => setForm((f) => ({ ...f, [field.key]: v }))}
+                    placeholder={field.placeholder}
+                    placeholderTextColor={colors.mutedForeground}
+                    autoCapitalize={field.caps}
+                    style={[
+                      styles.fieldInput,
+                      {
+                        color: colors.foreground,
+                        backgroundColor: colors.card,
+                        borderColor: hasOcrValue ? colors.primary + '66' : colors.border,
+                      },
+                    ]}
+                  />
+                </View>
+              );
+            })}
           </ScrollView>
         </KeyboardAvoidingView>
       )}
@@ -377,12 +511,40 @@ export default function AddCardScreen() {
       >
         {step < 3 ? (
           <TouchableOpacity
-            onPress={() => setStep(step + 1)}
-            style={[styles.nextBtn, { backgroundColor: colors.primary }]}
+            onPress={() => {
+              if (step === 1) {
+                handleContinueFromFront();
+              } else {
+                setStep(step + 1);
+              }
+            }}
+            disabled={step === 1 && ocrStatus === 'scanning'}
+            style={[
+              styles.nextBtn,
+              {
+                backgroundColor:
+                  step === 1 && ocrStatus === 'scanning'
+                    ? colors.primary + '88'
+                    : colors.primary,
+              },
+            ]}
             activeOpacity={0.85}
           >
-            <Text style={[styles.nextBtnText, { color: colors.primaryForeground }]}>Continue</Text>
-            <Ionicons name="arrow-forward" size={18} color={colors.primaryForeground} />
+            {step === 1 && ocrStatus === 'scanning' ? (
+              <>
+                <ActivityIndicator size="small" color={colors.primaryForeground} />
+                <Text style={[styles.nextBtnText, { color: colors.primaryForeground }]}>
+                  Scanning…
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={[styles.nextBtnText, { color: colors.primaryForeground }]}>
+                  Continue
+                </Text>
+                <Ionicons name="arrow-forward" size={18} color={colors.primaryForeground} />
+              </>
+            )}
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
@@ -464,6 +626,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  ocrBanner: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+  },
+  ocrBannerText: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#fff',
+  },
   imagePlaceholder: {
     width: '100%',
     aspectRatio: 1.585,
@@ -472,10 +652,11 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
     marginBottom: 20,
   },
-  imagePlaceholderText: { fontSize: 14, fontFamily: 'Inter_400Regular' },
+  imagePlaceholderText: { fontSize: 14, fontFamily: 'Inter_500Medium' },
+  imagePlaceholderHint: { fontSize: 12, fontFamily: 'Inter_400Regular' },
   imageButtons: { flexDirection: 'row', gap: 12 },
   imgBtn: {
     flex: 1,
@@ -488,8 +669,49 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   imgBtnText: { fontSize: 15, fontFamily: 'Inter_500Medium' },
+  ocrHint: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 16,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  ocrHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', lineHeight: 17 },
+  ocrSuccessBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 20,
+  },
+  ocrSuccessText: { fontSize: 13, fontFamily: 'Inter_500Medium' },
   fieldGroup: { marginBottom: 16 },
-  fieldLabel: { fontSize: 12, fontFamily: 'Inter_500Medium', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  fieldLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontFamily: 'Inter_500Medium',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  ocrTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: 'rgba(201,162,39,0.12)',
+  },
+  ocrTagText: { fontSize: 10, fontFamily: 'Inter_600SemiBold' },
   fieldInput: {
     borderWidth: 1,
     borderRadius: 12,
