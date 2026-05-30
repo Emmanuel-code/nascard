@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Alert,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -13,8 +14,10 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PinPad } from '@/components/PinPad';
 import { useCards } from '@/contexts/CardContext';
 import { useProfile } from '@/contexts/ProfileContext';
+import { hashPin } from '@/lib/pin';
 import {
   cancelAllNotifications,
   requestNotificationPermission,
@@ -27,6 +30,8 @@ async function getBiometrics() {
   try { return await import('expo-local-authentication'); } catch { return null; }
 }
 
+type PinFlowStep = 'set' | 'confirm';
+
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -37,6 +42,12 @@ export default function ProfileScreen() {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(profile.displayName);
   const [email, setEmail] = useState(profile.email);
+
+  // PIN setup flow state
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [pinStep, setPinStep] = useState<PinFlowStep>('set');
+  const [firstPin, setFirstPin] = useState('');
+  const [pinError, setPinError] = useState<string | null>(null);
 
   const saveProfile = async () => {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -49,19 +60,21 @@ export default function ProfileScreen() {
       const LA = await getBiometrics();
       if (!LA) { updateProfile({ appLockEnabled: true }); return; }
       const enrolled = await LA.isEnrolledAsync();
-      if (!enrolled) {
+      if (!enrolled && !profile.pinHash) {
         Alert.alert(
-          'No Biometrics Found',
-          'Set up Face ID, Touch ID, or a device passcode in your device settings first.',
+          'No Authentication Method',
+          'Set up a PIN code below, or enroll Face ID / Touch ID in device settings first.',
         );
         return;
       }
-      const result = await LA.authenticateAsync({
-        promptMessage: 'Confirm to enable App Lock',
-        fallbackLabel: 'Use Passcode',
-        disableDeviceFallback: false,
-      });
-      if (!result.success) return;
+      if (enrolled) {
+        const result = await LA.authenticateAsync({
+          promptMessage: 'Confirm to enable App Lock',
+          fallbackLabel: 'Use Passcode',
+          disableDeviceFallback: false,
+        });
+        if (!result.success) return;
+      }
     }
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     updateProfile({ appLockEnabled: val });
@@ -71,10 +84,7 @@ export default function ProfileScreen() {
     if (val) {
       const granted = await requestNotificationPermission();
       if (!granted) {
-        Alert.alert(
-          'Permission Required',
-          'Enable notifications in your device settings to receive expiry reminders.',
-        );
+        Alert.alert('Permission Required', 'Enable notifications in your device settings to receive expiry reminders.');
         return;
       }
       updateProfile({ notificationsEnabled: true });
@@ -85,6 +95,46 @@ export default function ProfileScreen() {
     }
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
+
+  const openPinSetup = () => {
+    setPinStep('set');
+    setFirstPin('');
+    setPinError(null);
+    setPinModalVisible(true);
+  };
+
+  const handleRemovePin = () => {
+    Alert.alert('Remove PIN', 'Are you sure you want to remove your PIN code?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          updateProfile({ pinHash: undefined });
+        },
+      },
+    ]);
+  };
+
+  const handlePinSet = useCallback(async (pin: string) => {
+    if (pinStep === 'set') {
+      setFirstPin(pin);
+      setPinStep('confirm');
+      setPinError(null);
+    } else {
+      if (pin !== firstPin) {
+        setPinError('PINs do not match. Try again.');
+        setPinStep('set');
+        setFirstPin('');
+        return;
+      }
+      const hash = await hashPin(pin);
+      updateProfile({ pinHash: hash });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setPinModalVisible(false);
+    }
+  }, [pinStep, firstPin, updateProfile]);
 
   const totalCards = cards.length;
   const personalCards = cards.filter((c) => c.profileId === 'personal').length;
@@ -132,19 +182,10 @@ export default function ProfileScreen() {
                   autoCapitalize="none"
                 />
                 <View style={styles.editActions}>
-                  <TouchableOpacity
-                    onPress={saveProfile}
-                    style={[styles.saveBtn, { backgroundColor: colors.primary }]}
-                  >
+                  <TouchableOpacity onPress={saveProfile} style={[styles.saveBtn, { backgroundColor: colors.primary }]}>
                     <Text style={[styles.saveBtnText, { color: colors.primaryForeground }]}>Save</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setName(profile.displayName);
-                      setEmail(profile.email);
-                      setEditing(false);
-                    }}
-                  >
+                  <TouchableOpacity onPress={() => { setName(profile.displayName); setEmail(profile.email); setEditing(false); }}>
                     <Text style={[styles.cancelText, { color: colors.mutedForeground }]}>Cancel</Text>
                   </TouchableOpacity>
                 </View>
@@ -155,9 +196,7 @@ export default function ProfileScreen() {
                   {profile.displayName || 'Your Name'}
                 </Text>
                 {profile.email ? (
-                  <Text style={[styles.profileEmail, { color: colors.mutedForeground }]}>
-                    {profile.email}
-                  </Text>
+                  <Text style={[styles.profileEmail, { color: colors.mutedForeground }]}>{profile.email}</Text>
                 ) : null}
                 <TouchableOpacity onPress={() => setEditing(true)} style={styles.editBtn}>
                   <Text style={[styles.editBtnText, { color: colors.primary }]}>Edit profile</Text>
@@ -175,10 +214,7 @@ export default function ProfileScreen() {
             { label: 'Work', value: workCards },
             { label: 'Student', value: studentCards },
           ].map((stat) => (
-            <View
-              key={stat.label}
-              style={[styles.statItem, { backgroundColor: colors.card, borderColor: colors.border }]}
-            >
+            <View key={stat.label} style={[styles.statItem, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Text style={[styles.statValue, { color: colors.foreground }]}>{stat.value}</Text>
               <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>{stat.label}</Text>
             </View>
@@ -188,12 +224,14 @@ export default function ProfileScreen() {
         {/* Security section */}
         <View style={styles.sectionGroup}>
           <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>SECURITY</Text>
+
+          {/* App Lock toggle */}
           <View style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Ionicons name="lock-closed-outline" size={20} color={colors.primary} />
             <View style={styles.rowContent}>
               <Text style={[styles.rowText, { color: colors.foreground }]}>App Lock</Text>
               <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>
-                {Platform.OS === 'web' ? 'Native only' : 'Biometrics or passcode'}
+                {Platform.OS === 'web' ? 'Native only' : 'Biometrics or PIN'}
               </Text>
             </View>
             <Switch
@@ -204,6 +242,30 @@ export default function ProfileScreen() {
               thumbColor={profile.appLockEnabled ? colors.primary : colors.mutedForeground}
             />
           </View>
+
+          {/* PIN code row */}
+          {Platform.OS !== 'web' && (
+            <TouchableOpacity
+              onPress={profile.pinHash ? handleRemovePin : openPinSetup}
+              style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="keypad-outline" size={20} color={profile.pinHash ? colors.verified : colors.mutedForeground} />
+              <View style={styles.rowContent}>
+                <Text style={[styles.rowText, { color: colors.foreground }]}>PIN Code</Text>
+                <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>
+                  {profile.pinHash ? '6-digit PIN is set' : 'Add a 6-digit fallback PIN'}
+                </Text>
+              </View>
+              {profile.pinHash ? (
+                <View style={[styles.badge, { backgroundColor: colors.verified + '22' }]}>
+                  <Text style={[styles.badgeText, { color: colors.verified }]}>On</Text>
+                </View>
+              ) : (
+                <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+              )}
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Notifications section */}
@@ -252,6 +314,37 @@ export default function ProfileScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* PIN setup modal */}
+      <Modal
+        visible={pinModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setPinModalVisible(false)}
+      >
+        <View style={[styles.modalRoot, { backgroundColor: colors.background }]}>
+          <View style={styles.modalHandle} />
+
+          <TouchableOpacity
+            onPress={() => setPinModalVisible(false)}
+            style={[styles.modalClose, { backgroundColor: colors.muted }]}
+          >
+            <Ionicons name="close" size={18} color={colors.foreground} />
+          </TouchableOpacity>
+
+          <PinPad
+            title={pinStep === 'set' ? 'Set your PIN' : 'Confirm your PIN'}
+            subtitle={
+              pinStep === 'set'
+                ? 'Choose a 6-digit PIN to unlock the app'
+                : 'Enter the same PIN again to confirm'
+            }
+            onComplete={handlePinSet}
+            onCancel={() => setPinModalVisible(false)}
+            error={pinError}
+          />
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -269,13 +362,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 16,
   },
-  avatarLarge: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  avatarLarge: { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center' },
   avatarInitial: { fontSize: 26, fontFamily: 'Inter_700Bold' },
   profileInfo: { flex: 1, gap: 4 },
   profileName: { fontSize: 18, fontFamily: 'Inter_600SemiBold' },
@@ -296,14 +383,7 @@ const styles = StyleSheet.create({
   saveBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
   cancelText: { fontSize: 13, fontFamily: 'Inter_500Medium' },
   stats: { flexDirection: 'row', gap: 8, marginBottom: 24 },
-  statItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 2,
-  },
+  statItem: { flex: 1, alignItems: 'center', paddingVertical: 14, borderRadius: 12, borderWidth: 1, gap: 2 },
   statValue: { fontSize: 22, fontFamily: 'Inter_700Bold' },
   statLabel: { fontSize: 11, fontFamily: 'Inter_500Medium' },
   sectionGroup: { marginBottom: 20, gap: 2 },
@@ -327,6 +407,8 @@ const styles = StyleSheet.create({
   rowContent: { flex: 1 },
   rowText: { fontSize: 15, fontFamily: 'Inter_400Regular' },
   rowSub: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 1 },
+  badge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 },
+  badgeText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
   versionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -337,4 +419,28 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   versionText: { fontSize: 13, fontFamily: 'Inter_400Regular' },
+  modalRoot: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 60,
+  },
+  modalHandle: {
+    position: 'absolute',
+    top: 12,
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#666',
+  },
+  modalClose: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

@@ -28,6 +28,7 @@ export interface UserProfile {
   hasCompletedOnboarding: boolean;
   appLockEnabled: boolean;
   notificationsEnabled: boolean;
+  pinHash?: string;
 }
 
 export type ExpiryStatus = 'valid' | 'expiring' | 'expired';
