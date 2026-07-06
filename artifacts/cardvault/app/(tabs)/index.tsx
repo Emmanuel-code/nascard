@@ -3,7 +3,6 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
-  FlatList,
   Platform,
   ScrollView,
   StyleSheet,
@@ -22,6 +21,7 @@ import { CardItem } from '@/components/CardItem';
 import { useCards } from '@/contexts/CardContext';
 import { useProfile } from '@/contexts/ProfileContext';
 import { useColors } from '@/hooks/useColors';
+import { useNearbyCard } from '@/hooks/useNearbyCard';
 import type { ProfileType } from '@/types/card';
 import { getDaysUntilExpiry } from '@/types/card';
 
@@ -53,6 +53,8 @@ export default function HomeScreen() {
         .filter((c) => getDaysUntilExpiry(c.expiryDate) <= 14 && getDaysUntilExpiry(c.expiryDate) >= 0),
     [cards, profile.activeProfile],
   );
+
+  const { suggestion: nearbySuggestion } = useNearbyCard(profileCards);
 
   const fabScale = useSharedValue(1);
   const fabStyle = useAnimatedStyle(() => ({ transform: [{ scale: fabScale.value }] }));
@@ -151,6 +153,24 @@ export default function HomeScreen() {
             </TouchableOpacity>
           )}
         </View>
+
+        {/* Nearby card suggestion */}
+        {nearbySuggestion && query.length === 0 && (
+          <TouchableOpacity
+            style={[styles.nearbyBanner, { backgroundColor: colors.primary + '14', borderColor: colors.primary + '44' }]}
+            onPress={() => router.push(`/card/${nearbySuggestion.card.id}`)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="location" size={16} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.nearbyTitle, { color: colors.primary }]}>Near you</Text>
+              <Text style={[styles.nearbyCard, { color: colors.foreground }]} numberOfLines={1}>
+                {nearbySuggestion.card.title}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+          </TouchableOpacity>
+        )}
 
         {/* Expiring soon banner */}
         {expiringCards.length > 0 && query.length === 0 && (
@@ -261,6 +281,17 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: 'Inter_400Regular',
   },
+  nearbyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  nearbyTitle: { fontSize: 10, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.6 },
+  nearbyCard: { fontSize: 14, fontFamily: 'Inter_600SemiBold', marginTop: 1 },
   expiryBanner: {
     flexDirection: 'row',
     alignItems: 'center',

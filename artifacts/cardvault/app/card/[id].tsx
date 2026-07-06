@@ -6,6 +6,7 @@ import QRCode from 'react-native-qrcode-svg';
 import React, { useState } from 'react';
 import { BarcodeDisplay } from '@/components/BarcodeDisplay';
 import { BarcodeModal } from '@/components/BarcodeModal';
+import { PrivacyField } from '@/components/PrivacyField';
 import {
   Alert,
   Dimensions,
@@ -247,21 +248,19 @@ export default function CardDetailScreen() {
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-          {[
-            { label: 'Name on card', value: card.nameOnCard },
-            { label: 'ID Number', value: card.idNumber },
-          ]
-            .filter((f) => f.value)
-            .map((field) => (
-              <View key={field.label} style={styles.field}>
-                <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>
-                  {field.label}
-                </Text>
-                <Text style={[styles.fieldValue, { color: colors.foreground }]}>
-                  {field.value}
-                </Text>
-              </View>
-            ))}
+          {card.nameOnCard ? (
+            <View style={styles.field}>
+              <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Name on card</Text>
+              <Text style={[styles.fieldValue, { color: colors.foreground }]}>{card.nameOnCard}</Text>
+            </View>
+          ) : null}
+
+          {card.idNumber ? (
+            <View style={styles.field}>
+              <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>ID Number</Text>
+              <PrivacyField value={card.idNumber} />
+            </View>
+          ) : null}
 
           {card.expiryDate ? (
             <View style={styles.field}>
