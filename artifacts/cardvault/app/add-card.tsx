@@ -4,6 +4,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
+import { BarcodeScanner, mapBarcodeType } from '@/components/BarcodeScanner';
+import type { BarcodeResult } from '@/components/BarcodeScanner';
 import {
   ActivityIndicator,
   Alert,
@@ -45,6 +47,7 @@ interface FormData {
   notes: string;
   frontImageUri: string | null;
   backImageUri: string | null;
+  barcodeFormat: 'qr' | 'code128' | 'code39';
 }
 
 type OcrStatus = 'idle' | 'scanning' | 'done' | 'failed';
@@ -92,6 +95,8 @@ export default function AddCardScreen() {
   const { profile } = useProfile();
   const [step, setStep] = useState(0);
   const [ocrStatus, setOcrStatus] = useState<OcrStatus>('idle');
+  const [showScanner, setShowScanner] = useState(false);
+  const [barcodeScanned, setBarcodeScanned] = useState(false);
 
   const [form, setForm] = useState<FormData>({
     cardType: 'id',
@@ -102,6 +107,7 @@ export default function AddCardScreen() {
     notes: '',
     frontImageUri: null,
     backImageUri: null,
+    barcodeFormat: 'qr',
   });
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
@@ -166,6 +172,14 @@ export default function AddCardScreen() {
     }
   };
 
+  const handleBarcodeScan = (result: BarcodeResult) => {
+    const fmt = mapBarcodeType(result.type);
+    setForm((f) => ({ ...f, idNumber: result.value, barcodeFormat: fmt }));
+    setBarcodeScanned(true);
+    setShowScanner(false);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
   const handleSave = async () => {
     if (!form.title.trim()) {
       Alert.alert('Missing info', 'Please enter a card title.');
@@ -181,7 +195,7 @@ export default function AddCardScreen() {
       expiryDate: form.expiryDate,
       frontImageUri: form.frontImageUri,
       backImageUri: form.backImageUri,
-      barcodeFormat: 'qr',
+      barcodeFormat: form.barcodeFormat,
       barcodeValue: form.idNumber.trim() || form.title.trim(),
       notes: form.notes.trim(),
       isPartnerIssued: false,
@@ -435,6 +449,40 @@ export default function AddCardScreen() {
               <Text style={[styles.imgBtnText, { color: colors.foreground }]}>Gallery</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Barcode scanner button */}
+          <TouchableOpacity
+            onPress={() => setShowScanner(true)}
+            style={[
+              styles.scanBarcodeBtn,
+              {
+                backgroundColor: barcodeScanned ? colors.verified + '18' : colors.card,
+                borderColor: barcodeScanned ? colors.verified : colors.primary + '66',
+              },
+            ]}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name={barcodeScanned ? 'checkmark-circle' : 'barcode-outline'}
+              size={22}
+              color={barcodeScanned ? colors.verified : colors.primary}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.scanBarcodeBtnText, { color: barcodeScanned ? colors.verified : colors.foreground }]}>
+                {barcodeScanned ? 'Barcode scanned ✓' : 'Scan barcode on card'}
+              </Text>
+              {barcodeScanned && form.idNumber ? (
+                <Text style={[styles.scanBarcodeSub, { color: colors.mutedForeground }]} numberOfLines={1}>
+                  {form.idNumber}
+                </Text>
+              ) : (
+                <Text style={[styles.scanBarcodeSub, { color: colors.mutedForeground }]}>
+                  Reads QR, Code128, EAN, and more
+                </Text>
+              )}
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+          </TouchableOpacity>
         </ScrollView>
       )}
 
@@ -573,6 +621,14 @@ export default function AddCardScreen() {
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Barcode scanner overlay */}
+      {showScanner && (
+        <BarcodeScanner
+          onScanned={handleBarcodeScan}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
     </View>
   );
 }
@@ -745,4 +801,16 @@ const styles = StyleSheet.create({
   nextBtnText: { fontSize: 16, fontFamily: 'Inter_600SemiBold' },
   skipStep: { alignItems: 'center' },
   skipStepText: { fontSize: 14, fontFamily: 'Inter_500Medium' },
+  scanBarcodeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: 20,
+    marginTop: 14,
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1.5,
+  },
+  scanBarcodeBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
+  scanBarcodeSub: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 2 },
 });

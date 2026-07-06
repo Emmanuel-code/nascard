@@ -1,0 +1,1 @@
+- [Metro tmp-dir watcher crash fix](metro-tmp-watcher.md) — pnpm native Expo packages cause ENOENT Metro crashes; fix via blockList in metro.config.js
