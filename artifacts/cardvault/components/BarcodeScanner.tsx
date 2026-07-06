@@ -47,8 +47,9 @@ export function BarcodeScanner({ onScanned, onClose }: Props) {
     if (Platform.OS === 'web') { setPermission('denied'); return; }
     (async () => {
       const cam = await import('expo-camera');
-      const result = await cam.requestCameraPermissionsAsync();
-      if (result.granted) {
+      // expo-camera v17: requestCameraPermissionsAsync is a static method on Camera
+      const result = await (cam as any).Camera.requestCameraPermissionsAsync();
+      if (result?.granted) {
         CameraViewComponent = cam.CameraView;
         setCameraReady(true);
         setPermission('granted');

@@ -4,6 +4,8 @@ import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
 import React, { useState } from 'react';
+import { BarcodeDisplay } from '@/components/BarcodeDisplay';
+import { BarcodeModal } from '@/components/BarcodeModal';
 import {
   Alert,
   Dimensions,
@@ -61,6 +63,7 @@ export default function CardDetailScreen() {
   const card = getCard(id ?? '');
   const [imageIndex, setImageIndex] = useState(0);
   const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [barcodeModalVisible, setBarcodeModalVisible] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
@@ -290,20 +293,34 @@ export default function CardDetailScreen() {
 
         {/* Barcode */}
         {card.barcodeValue ? (
-          <View style={[styles.barcodeCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.barcodeTitle, { color: colors.mutedForeground }]}>Barcode</Text>
-            <View style={styles.barcodeWrap}>
-              <QRCode
+          <TouchableOpacity
+            onPress={async () => {
+              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setBarcodeModalVisible(true);
+            }}
+            activeOpacity={0.85}
+            style={[styles.barcodeCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+          >
+            <View style={styles.barcodeTitleRow}>
+              <Text style={[styles.barcodeTitle, { color: colors.mutedForeground }]}>Barcode</Text>
+              <View style={[styles.expandBadge, { backgroundColor: colors.primary + '18' }]}>
+                <Ionicons name="expand-outline" size={13} color={colors.primary} />
+                <Text style={[styles.expandBadgeText, { color: colors.primary }]}>Show full screen</Text>
+              </View>
+            </View>
+            <View style={[styles.barcodeWrap, { backgroundColor: '#fff' }]}>
+              <BarcodeDisplay
                 value={card.barcodeValue}
+                format={card.barcodeFormat ?? 'qr'}
                 size={160}
-                color={colors.foreground}
-                backgroundColor={colors.card}
+                color="#111"
+                backgroundColor="#ffffff"
               />
             </View>
             <Text style={[styles.barcodeValueText, { color: colors.mutedForeground }]}>
               {card.barcodeValue}
             </Text>
-          </View>
+          </TouchableOpacity>
         ) : null}
 
         {/* Action buttons */}
@@ -335,6 +352,17 @@ export default function CardDetailScreen() {
           60-second QR for live verification · Share sends a read-only link
         </Text>
       </ScrollView>
+
+      {/* Barcode full-screen modal */}
+      {card.barcodeValue ? (
+        <BarcodeModal
+          visible={barcodeModalVisible}
+          onClose={() => setBarcodeModalVisible(false)}
+          value={card.barcodeValue}
+          format={card.barcodeFormat ?? 'qr'}
+          cardTitle={card.title}
+        />
+      ) : null}
 
       {/* Share modal */}
       <Modal
@@ -483,13 +511,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
+  barcodeTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
   barcodeTitle: {
     fontSize: 11,
     fontFamily: 'Inter_600SemiBold',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    alignSelf: 'flex-start',
   },
+  expandBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  expandBadgeText: { fontSize: 11, fontFamily: 'Inter_500Medium' },
   barcodeWrap: { padding: 16, borderRadius: 12 },
   barcodeValueText: { fontSize: 13, fontFamily: 'Inter_400Regular', letterSpacing: 1.5 },
   actionRow: { flexDirection: 'row', gap: 10 },

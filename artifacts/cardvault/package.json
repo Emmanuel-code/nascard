@@ -66,6 +66,7 @@
     "expo-local-authentication": "^17.0.8",
     "expo-notifications": "^0.32.17",
     "expo-sharing": "^14.0.8",
+    "react-native-barcode-svg": "^0.0.15",
     "react-native-qrcode-svg": "^6.3.21"
   }
 }
