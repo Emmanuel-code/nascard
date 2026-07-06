@@ -44,6 +44,7 @@ function RootLayoutNav() {
       />
       <Stack.Screen name="share/[token]" />
       <Stack.Screen name="backup" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="edit-card" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
     </Stack>
   );
 }
