@@ -15,6 +15,7 @@ interface CardContextValue {
   getCardsByProfile: (profileId: ProfileType) => Card[];
   getExpiringCards: (withinDays?: number) => Card[];
   searchCards: (query: string, profileId?: ProfileType) => Card[];
+  importCards: (incoming: Card[], mode: 'merge' | 'replace') => Promise<void>;
 }
 
 const CardContext = createContext<CardContextValue>({} as CardContextValue);
@@ -101,6 +102,24 @@ export function CardProvider({ children }: { children: React.ReactNode }) {
     [cards],
   );
 
+  const importCards = useCallback(
+    async (incoming: Card[], mode: 'merge' | 'replace') => {
+      const now = new Date().toISOString();
+      if (mode === 'replace') {
+        const refreshed = incoming.map((c) => ({ ...c, updatedAt: now }));
+        await persist(refreshed);
+      } else {
+        // merge: skip any card whose id already exists
+        const existingIds = new Set(cards.map((c) => c.id));
+        const toAdd = incoming
+          .filter((c) => !existingIds.has(c.id))
+          .map((c) => ({ ...c, updatedAt: now }));
+        await persist([...cards, ...toAdd]);
+      }
+    },
+    [cards, persist],
+  );
+
   return (
     <CardContext.Provider
       value={{
@@ -113,6 +132,7 @@ export function CardProvider({ children }: { children: React.ReactNode }) {
         getCardsByProfile,
         getExpiringCards,
         searchCards,
+        importCards,
       }}
     >
       {children}

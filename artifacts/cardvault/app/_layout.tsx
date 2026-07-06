@@ -43,6 +43,7 @@ function RootLayoutNav() {
         options={{ presentation: 'fullScreenModal' }}
       />
       <Stack.Screen name="share/[token]" />
+      <Stack.Screen name="backup" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
     </Stack>
   );
 }

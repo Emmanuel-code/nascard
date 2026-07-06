@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
   Alert,
@@ -35,6 +36,7 @@ type PinFlowStep = 'set' | 'confirm';
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { profile, updateProfile } = useProfile();
   const { cards } = useCards();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
@@ -287,6 +289,25 @@ export default function ProfileScreen() {
               thumbColor={profile.notificationsEnabled ? colors.primary : colors.mutedForeground}
             />
           </View>
+        </View>
+
+        {/* Backup section */}
+        <View style={styles.sectionGroup}>
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>DATA</Text>
+          <TouchableOpacity
+            onPress={() => router.push('/backup' as any)}
+            style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="cloud-upload-outline" size={20} color={colors.primary} />
+            <View style={styles.rowContent}>
+              <Text style={[styles.rowText, { color: colors.foreground }]}>Backup & Restore</Text>
+              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>
+                Export encrypted backup to cloud storage
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+          </TouchableOpacity>
         </View>
 
         {/* About section */}
