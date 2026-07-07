@@ -18,6 +18,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PinPad } from '@/components/PinPad';
 import { useCards } from '@/contexts/CardContext';
 import { useProfile } from '@/contexts/ProfileContext';
+import { usePro } from '@/contexts/ProContext';
+import { ProPaywall } from '@/components/ProPaywall';
 import { hashPin } from '@/lib/pin';
 import {
   cancelAllNotifications,
@@ -40,6 +42,9 @@ export default function ProfileScreen() {
   const { profile, updateProfile } = useProfile();
   const { cards } = useCards();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
+
+  const { isPro } = usePro();
+  const [paywallVisible, setPaywallVisible] = useState(false);
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(profile.displayName);
@@ -156,6 +161,34 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={[styles.heading, { color: colors.foreground }]}>Profile</Text>
+
+        {/* Pro status banner */}
+        {isPro ? (
+          <View style={[styles.proBanner, { backgroundColor: colors.primary + '18', borderColor: colors.primary + '44' }]}>
+            <Text style={styles.proEmoji}>👑</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.proTitle, { color: colors.primary }]}>CardVault Pro</Text>
+              <Text style={[styles.proSub, { color: colors.mutedForeground }]}>All features unlocked</Text>
+            </View>
+            <View style={[styles.proBadge, { backgroundColor: colors.primary }]}>
+              <Text style={[styles.proBadgeText, { color: colors.primaryForeground }]}>ACTIVE</Text>
+            </View>
+          </View>
+        ) : (
+          <TouchableOpacity
+            onPress={() => setPaywallVisible(true)}
+            style={[styles.proBanner, styles.proBannerCta, { backgroundColor: colors.primary, borderColor: colors.primary }]}
+          >
+            <Text style={styles.proEmoji}>👑</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.proTitle, { color: colors.primaryForeground }]}>Upgrade to Pro</Text>
+              <Text style={[styles.proSub, { color: colors.primaryForeground + 'BB' }]}>$4.99/mo · Unlimited cards + all features</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.primaryForeground} />
+          </TouchableOpacity>
+        )}
+
+        <ProPaywall visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
 
         {/* Avatar + name */}
         <View style={[styles.profileCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -373,7 +406,22 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: { paddingHorizontal: 20 },
-  heading: { fontSize: 24, fontFamily: 'Inter_700Bold', marginBottom: 20 },
+  heading: { fontSize: 24, fontFamily: 'Inter_700Bold', marginBottom: 12 },
+  proBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  proBannerCta: {},
+  proEmoji: { fontSize: 24 },
+  proTitle: { fontSize: 15, fontFamily: 'Inter_700Bold' },
+  proSub: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 2 },
+  proBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  proBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', letterSpacing: 0.5 },
   profileCard: {
     flexDirection: 'row',
     alignItems: 'center',

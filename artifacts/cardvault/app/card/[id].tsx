@@ -161,6 +161,9 @@ export default function CardDetailScreen() {
         <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
           {card.title}
         </Text>
+        <TouchableOpacity onPress={() => router.push({ pathname: '/edit-card', params: { id: card.id } })} style={styles.iconBtn}>
+          <Ionicons name="create-outline" size={22} color={colors.primary} />
+        </TouchableOpacity>
         <TouchableOpacity onPress={handleDelete} style={styles.iconBtn}>
           <Ionicons name="trash-outline" size={22} color={colors.expired} />
         </TouchableOpacity>

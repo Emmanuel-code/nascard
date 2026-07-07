@@ -16,6 +16,7 @@ import { LockScreen } from '@/components/LockScreen';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { CardProvider, useCards } from '@/contexts/CardContext';
 import { ProfileProvider, useProfile } from '@/contexts/ProfileContext';
+import { ProProvider } from '@/contexts/ProContext';
 import {
   cancelAllNotifications,
   configureNotificationHandler,
@@ -127,9 +128,11 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <ProfileProvider>
             <CardProvider>
-              <GestureHandlerRootView style={{ flex: 1 }}>
-                <AppCore />
-              </GestureHandlerRootView>
+              <ProProvider>
+                <GestureHandlerRootView style={{ flex: 1 }}>
+                  <AppCore />
+                </GestureHandlerRootView>
+              </ProProvider>
             </CardProvider>
           </ProfileProvider>
         </QueryClientProvider>

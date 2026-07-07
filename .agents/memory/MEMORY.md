@@ -1,1 +1,3 @@
 - [Metro tmp-dir watcher crash fix](metro-tmp-watcher.md) — pnpm native Expo packages cause ENOENT Metro crashes; fix via blockList in metro.config.js
+- [Whop integration setup](whop-setup.md) — CardVault Pro plan configured; company/plan IDs stored as Replit configs
+- [Regulated card edit policy](regulated-cards.md) — id and health card types have locked core fields by regulation; only notes + photos editable
