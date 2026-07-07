@@ -12,9 +12,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CardItem } from '@/components/CardItem';
+import { ProPaywall } from '@/components/ProPaywall';
 import { useCards } from '@/contexts/CardContext';
+import { usePro } from '@/contexts/ProContext';
 import { useColors } from '@/hooks/useColors';
 import type { CardType } from '@/types/card';
+
+const FREE_CARD_LIMIT = 5;
 
 const FILTERS: { key: CardType | 'all'; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -29,7 +33,18 @@ export default function CardsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { cards, isLoading } = useCards();
+  const { isPro } = usePro();
   const [filter, setFilter] = useState<CardType | 'all'>('all');
+  const [paywallVisible, setPaywallVisible] = useState(false);
+
+  const atLimit = !isPro && cards.length >= FREE_CARD_LIMIT;
+  const usedSlots = Math.min(cards.length, FREE_CARD_LIMIT);
+
+  const handleAddCard = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (atLimit) { setPaywallVisible(true); return; }
+    router.push('/add-card');
+  };
 
   const filtered = useMemo(
     () => (filter === 'all' ? cards : cards.filter((c) => c.cardType === filter)),
@@ -46,6 +61,33 @@ export default function CardsScreen() {
           {filtered.length} card{filtered.length !== 1 ? 's' : ''}
         </Text>
       </View>
+
+      <ProPaywall visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
+
+      {/* Free-tier usage meter (hidden for Pro users) */}
+      {!isPro && (
+        <View style={[styles.meterWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.meterTop}>
+            <Text style={[styles.meterLabel, { color: colors.mutedForeground }]}>
+              Free plan · {usedSlots} / {FREE_CARD_LIMIT} cards
+            </Text>
+            <TouchableOpacity onPress={() => setPaywallVisible(true)}>
+              <Text style={[styles.meterUpgrade, { color: colors.primary }]}>Upgrade 👑</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={[styles.meterTrack, { backgroundColor: colors.muted }]}>
+            <View
+              style={[
+                styles.meterFill,
+                {
+                  width: `${(usedSlots / FREE_CARD_LIMIT) * 100}%` as any,
+                  backgroundColor: atLimit ? colors.expired : colors.primary,
+                },
+              ]}
+            />
+          </View>
+        </View>
+      )}
 
       {/* Filter chips */}
       <FlatList
@@ -108,20 +150,17 @@ export default function CardsScreen() {
 
       {/* FAB */}
       <TouchableOpacity
-        onPress={async () => {
-          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          router.push('/add-card');
-        }}
+        onPress={handleAddCard}
         activeOpacity={0.85}
         style={[
           styles.fab,
           {
-            backgroundColor: colors.primary,
+            backgroundColor: atLimit ? colors.muted : colors.primary,
             bottom: Platform.OS === 'web' ? 34 + 84 : insets.bottom + 84,
           },
         ]}
       >
-        <Ionicons name="add" size={28} color={colors.primaryForeground} />
+        <Ionicons name={atLimit ? 'lock-closed' : 'add'} size={atLimit ? 22 : 28} color={atLimit ? colors.mutedForeground : colors.primaryForeground} />
       </TouchableOpacity>
     </View>
   );
@@ -149,6 +188,19 @@ const styles = StyleSheet.create({
   list: { paddingHorizontal: 20, paddingTop: 4 },
   empty: { alignItems: 'center', paddingVertical: 60, gap: 12 },
   emptyText: { fontSize: 15, fontFamily: 'Inter_400Regular' },
+  meterWrap: {
+    marginHorizontal: 20,
+    marginBottom: 10,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 8,
+  },
+  meterTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  meterLabel: { fontSize: 12, fontFamily: 'Inter_500Medium' },
+  meterUpgrade: { fontSize: 12, fontFamily: 'Inter_700Bold' },
+  meterTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
+  meterFill: { height: 6, borderRadius: 3 },
   fab: {
     position: 'absolute',
     right: 24,

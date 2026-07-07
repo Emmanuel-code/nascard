@@ -19,10 +19,15 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ProPaywall } from '@/components/ProPaywall';
 import { useCards } from '@/contexts/CardContext';
 import { useProfile } from '@/contexts/ProfileContext';
+import { usePro } from '@/contexts/ProContext';
 import { useColors } from '@/hooks/useColors';
+
 import type { CardType } from '@/types/card';
+
+const FREE_CARD_LIMIT = 5;
 
 const CARD_TYPES: { key: CardType; label: string; icon: string; lib: 'ionicons' | 'mci' }[] = [
   { key: 'id', label: 'ID Card', icon: 'card-account-details', lib: 'mci' },
@@ -91,8 +96,11 @@ export default function AddCardScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { addCard } = useCards();
+  const { addCard, cards } = useCards();
   const { profile } = useProfile();
+  const { isPro } = usePro();
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const atLimit = !isPro && cards.length >= FREE_CARD_LIMIT;
   const [step, setStep] = useState(0);
   const [ocrStatus, setOcrStatus] = useState<OcrStatus>('idle');
   const [showScanner, setShowScanner] = useState(false);
@@ -214,6 +222,33 @@ export default function AddCardScreen() {
   const handleContinueFromFront = () => {
     setStep(2);
   };
+
+  // Screen-level gate: if navigated directly while at limit, show blocker
+  if (atLimit) {
+    return (
+      <View style={[styles.root, { backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', padding: 32 }]}>
+        <ProPaywall visible={paywallVisible} onClose={() => { setPaywallVisible(false); router.back(); }} />
+        <Text style={{ fontSize: 40, marginBottom: 16 }}>👑</Text>
+        <Text style={[{ fontSize: 20, fontFamily: 'Inter_700Bold', color: colors.foreground, textAlign: 'center', marginBottom: 8 }]}>
+          Free plan limit reached
+        </Text>
+        <Text style={[{ fontSize: 15, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, textAlign: 'center', lineHeight: 22, marginBottom: 28 }]}>
+          You've used all {FREE_CARD_LIMIT} free card slots. Upgrade to Pro for unlimited cards.
+        </Text>
+        <TouchableOpacity
+          onPress={() => setPaywallVisible(true)}
+          style={[{ backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32, marginBottom: 16 }]}
+        >
+          <Text style={[{ color: colors.primaryForeground, fontSize: 16, fontFamily: 'Inter_700Bold' }]}>
+            Upgrade to Pro — $4.99/mo
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Text style={[{ color: colors.mutedForeground, fontSize: 14, fontFamily: 'Inter_500Medium' }]}>Go back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>

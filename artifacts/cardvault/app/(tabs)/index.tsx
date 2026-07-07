@@ -18,12 +18,17 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CardItem } from '@/components/CardItem';
+import { ProPaywall } from '@/components/ProPaywall';
 import { useCards } from '@/contexts/CardContext';
 import { useProfile } from '@/contexts/ProfileContext';
+import { usePro } from '@/contexts/ProContext';
 import { useColors } from '@/hooks/useColors';
 import { useNearbyCard } from '@/hooks/useNearbyCard';
+
 import type { ProfileType } from '@/types/card';
 import { getDaysUntilExpiry } from '@/types/card';
+
+const FREE_CARD_LIMIT = 5;
 
 const PROFILES: { key: ProfileType; label: string }[] = [
   { key: 'personal', label: 'Personal' },
@@ -56,6 +61,10 @@ export default function HomeScreen() {
 
   const { suggestion: nearbySuggestion } = useNearbyCard(profileCards);
 
+  const { isPro } = usePro();
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const atLimit = !isPro && cards.length >= FREE_CARD_LIMIT;
+
   const fabScale = useSharedValue(1);
   const fabStyle = useAnimatedStyle(() => ({ transform: [{ scale: fabScale.value }] }));
 
@@ -64,6 +73,7 @@ export default function HomeScreen() {
       fabScale.value = withSpring(1);
     });
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (atLimit) { setPaywallVisible(true); return; }
     router.push('/add-card');
   };
 
@@ -76,6 +86,7 @@ export default function HomeScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
+      <ProPaywall visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
       <ScrollView
         contentContainerStyle={[
           styles.scroll,

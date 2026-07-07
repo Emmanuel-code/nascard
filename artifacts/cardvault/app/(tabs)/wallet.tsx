@@ -12,11 +12,15 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ProPaywall } from '@/components/ProPaywall';
 import { WalletCard3D, CARD_W, CARD_H } from '@/components/WalletCard3D';
 import { useCards } from '@/contexts/CardContext';
 import { useProfile } from '@/contexts/ProfileContext';
+import { usePro } from '@/contexts/ProContext';
 import { useColors } from '@/hooks/useColors';
 import type { Card } from '@/types/card';
+
+const FREE_CARD_LIMIT = 5;
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const SNAP = CARD_W + 24;
@@ -27,7 +31,16 @@ export default function WalletScreen() {
   const router = useRouter();
   const { cards } = useCards();
   const { profile } = useProfile();
+  const { isPro } = usePro();
   const [activeIndex, setActiveIndex] = useState(0);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const atLimit = !isPro && cards.length >= FREE_CARD_LIMIT;
+
+  const handleAddCard = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (atLimit) { setPaywallVisible(true); return; }
+    router.push('/add-card');
+  };
   const listRef = useRef<FlatList>(null);
 
   const myCards = cards.filter((c) => c.profileId === profile.activeProfile);
@@ -44,15 +57,14 @@ export default function WalletScreen() {
           </Text>
         </View>
         <TouchableOpacity
-          onPress={async () => {
-            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            router.push('/add-card');
-          }}
-          style={[styles.addBtn, { backgroundColor: colors.primary }]}
+          onPress={handleAddCard}
+          style={[styles.addBtn, { backgroundColor: atLimit ? colors.muted : colors.primary }]}
         >
-          <Ionicons name="add" size={20} color={colors.primaryForeground} />
+          <Ionicons name={atLimit ? 'lock-closed' : 'add'} size={20} color={atLimit ? colors.mutedForeground : colors.primaryForeground} />
         </TouchableOpacity>
       </View>
+
+      <ProPaywall visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
 
       {myCards.length === 0 ? (
         <View style={styles.empty}>
@@ -64,7 +76,7 @@ export default function WalletScreen() {
             Add a card to see it in 3D wallet view
           </Text>
           <TouchableOpacity
-            onPress={() => router.push('/add-card')}
+            onPress={handleAddCard}
             style={[styles.emptyBtn, { backgroundColor: colors.primary }]}
           >
             <Text style={[styles.emptyBtnText, { color: colors.primaryForeground }]}>Add first card</Text>
