@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 
-const SALT = 'cardvault-pin-v1';
+const SALT = 'nascard-pin-v1';
 
 async function getCrypto() {
   if (Platform.OS === 'web') return null;

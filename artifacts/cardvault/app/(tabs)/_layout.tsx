@@ -65,7 +65,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
             <TabIcon
               iosName="house"
               fallback={<Feather name="home" size={size} color={color} />}
@@ -79,7 +79,7 @@ export default function TabLayout() {
         name="cards"
         options={{
           title: 'Cards',
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
             <TabIcon
               iosName="creditcard"
               fallback={<Ionicons name="card-outline" size={size} color={color} />}
@@ -92,36 +92,22 @@ export default function TabLayout() {
       <Tabs.Screen
         name="wallet"
         options={{
+          href: null,
           title: 'Wallet',
-          tabBarIcon: ({ color, size }) => (
-            <TabIcon
-              iosName="wallet"
-              fallback={<Ionicons name="wallet-outline" size={size} color={color} />}
-              color={color}
-              size={size}
-            />
-          ),
         }}
       />
       <Tabs.Screen
         name="notifications"
         options={{
+          href: null,
           title: 'Alerts',
-          tabBarIcon: ({ color, size }) => (
-            <TabIcon
-              iosName="bell"
-              fallback={<Ionicons name="notifications-outline" size={size} color={color} />}
-              color={color}
-              size={size}
-            />
-          ),
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
             <TabIcon
               iosName="person"
               fallback={<Ionicons name="person-outline" size={size} color={color} />}

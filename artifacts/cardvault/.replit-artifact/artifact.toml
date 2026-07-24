@@ -1,8 +1,8 @@
 kind = "mobile"
 previewPath = "/"
-title = "CardVault"
+title = "nascard"
 version = "1.0.0"
-id = "artifacts/cardvault"
+id = "artifacts/nascard"
 router = "expo-domain"
 
 [[integratedSkills]]
@@ -16,11 +16,11 @@ paths = [ "/" ]
 localPort = 25453
 
 [services.development]
-run = "pnpm --filter @workspace/cardvault run dev"
+run = "pnpm --filter @workspace/nascard run dev"
 
 [services.production]
-build = [ "pnpm", "--filter", "@workspace/cardvault", "run", "build" ]
-run = [ "pnpm", "--filter", "@workspace/cardvault", "run", "serve" ]
+build = [ "pnpm", "--filter", "@workspace/nascard", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/nascard", "run", "serve" ]
 
 [services.env]
 PORT = "25453"

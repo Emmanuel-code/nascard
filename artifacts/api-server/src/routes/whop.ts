@@ -74,7 +74,7 @@ router.get('/whop/plan', async (_req, res) => {
     price: 4.99,
     currency: 'usd',
     billingPeriod: 30,
-    title: 'CardVault Pro',
+    title: 'nascard Pro',
     features: [
       'Unlimited cards (free: up to 5)',
       'AES-256 encrypted backup & restore',

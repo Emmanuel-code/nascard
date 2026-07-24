@@ -1,8 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
-const PRO_KEY = '@cardvault:pro_status';
-const PRO_CHECKED_AT_KEY = '@cardvault:pro_checked_at';
+const PRO_KEY = '@nascard:pro_status';
+const PRO_CHECKED_AT_KEY = '@nascard:pro_checked_at';
 const CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour
 
 interface ProContextValue {

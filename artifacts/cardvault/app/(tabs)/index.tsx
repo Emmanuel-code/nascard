@@ -3,11 +3,11 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
+  Alert,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -17,64 +17,61 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CardItem } from '@/components/CardItem';
 import { ProPaywall } from '@/components/ProPaywall';
+import { StackedCardDeck } from '@/components/StackedCardDeck';
 import { useCards } from '@/contexts/CardContext';
 import { useProfile } from '@/contexts/ProfileContext';
 import { usePro } from '@/contexts/ProContext';
 import { useColors } from '@/hooks/useColors';
 import { useNearbyCard } from '@/hooks/useNearbyCard';
-
-import type { ProfileType } from '@/types/card';
+import type { Card } from '@/types/card';
 import { getDaysUntilExpiry } from '@/types/card';
 
 const FREE_CARD_LIMIT = 5;
-
-const PROFILES: { key: ProfileType; label: string }[] = [
-  { key: 'personal', label: 'Personal' },
-  { key: 'work', label: 'Work' },
-  { key: 'student', label: 'Student' },
-];
 
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { profile, setActiveProfile } = useProfile();
-  const { cards, isLoading, searchCards } = useCards();
-  const [query, setQuery] = useState('');
-
-  const topPad = Platform.OS === 'web' ? 67 : insets.top;
-
-  const profileCards = useMemo(
-    () => searchCards(query, profile.activeProfile),
-    [searchCards, query, profile.activeProfile],
-  );
-
-  const expiringCards = useMemo(
-    () =>
-      cards
-        .filter((c) => c.profileId === profile.activeProfile)
-        .filter((c) => getDaysUntilExpiry(c.expiryDate) <= 14 && getDaysUntilExpiry(c.expiryDate) >= 0),
-    [cards, profile.activeProfile],
-  );
-
-  const { suggestion: nearbySuggestion } = useNearbyCard(profileCards);
-
+  const { profile } = useProfile();
+  const { cards, isLoading } = useCards();
   const { isPro } = usePro();
   const [paywallVisible, setPaywallVisible] = useState(false);
   const atLimit = !isPro && cards.length >= FREE_CARD_LIMIT;
+
+  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+
+  const myCards = cards.filter((c) => c.profileId === profile.activeProfile);
+
+  const expiringCards = useMemo(
+    () => cards.filter((c: any) => getDaysUntilExpiry(c.expiryDate) <= 14 && getDaysUntilExpiry(c.expiryDate) >= 0),
+    [cards],
+  );
+
+  const { suggestion: nearbySuggestion } = useNearbyCard(myCards);
 
   const fabScale = useSharedValue(1);
   const fabStyle = useAnimatedStyle(() => ({ transform: [{ scale: fabScale.value }] }));
 
   const onFabPress = async () => {
-    fabScale.value = withSpring(0.9, {}, () => {
-      fabScale.value = withSpring(1);
-    });
+    fabScale.value = withSpring(0.9, {}, () => { fabScale.value = withSpring(1); });
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (atLimit) { setPaywallVisible(true); return; }
-    router.push('/add-card');
+    Alert.alert('Add to nascard', 'Choose how you want to add your card or pass:', [
+      {
+        text: '📷 Scan Card Barcode / QR',
+        onPress: () => router.push('/add-card?autoScan=true' as any),
+      },
+      {
+        text: '🏢 Join Organization Pass',
+        onPress: () => router.push('/org' as any),
+      },
+      {
+        text: '📸 Add Card (Photo + Details)',
+        onPress: () => router.push('/add-card'),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const greeting = useMemo(() => {
@@ -87,6 +84,7 @@ export default function HomeScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ProPaywall visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
+
       <ScrollView
         contentContainerStyle={[
           styles.scroll,
@@ -102,71 +100,31 @@ export default function HomeScreen() {
           <View>
             <Text style={[styles.greeting, { color: colors.mutedForeground }]}>{greeting}</Text>
             <Text style={[styles.name, { color: colors.foreground }]}>
-              {profile.displayName || 'CardVault'}
+              {profile.displayName || 'nascard Wallet'}
             </Text>
           </View>
-          <TouchableOpacity
-            onPress={() => router.push('/(tabs)/profile')}
-            style={[styles.avatar, { backgroundColor: colors.primary + '22' }]}
-          >
-            <Ionicons name="person" size={20} color={colors.primary} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Profile switcher */}
-        <View style={styles.profileSwitcher}>
-          {PROFILES.map((p) => (
+          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
             <TouchableOpacity
-              key={p.key}
-              onPress={() => setActiveProfile(p.key)}
-              style={[
-                styles.profilePill,
-                {
-                  backgroundColor:
-                    profile.activeProfile === p.key ? colors.primary : colors.secondary,
-                  borderColor:
-                    profile.activeProfile === p.key ? colors.primary : colors.border,
-                },
-              ]}
+              onPress={() => router.push('/org' as any)}
+              style={[styles.avatar, { backgroundColor: colors.primary + '22' }]}
             >
-              <Text
-                style={[
-                  styles.profilePillText,
-                  {
-                    color:
-                      profile.activeProfile === p.key
-                        ? colors.primaryForeground
-                        : colors.mutedForeground,
-                  },
-                ]}
-              >
-                {p.label}
-              </Text>
+              <Ionicons name="business-outline" size={20} color={colors.primary} />
             </TouchableOpacity>
-          ))}
-        </View>
 
-        {/* Search */}
-        <View
-          style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}
-        >
-          <Ionicons name="search" size={18} color={colors.mutedForeground} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search cards..."
-            placeholderTextColor={colors.mutedForeground}
-            style={[styles.searchInput, { color: colors.foreground }]}
-          />
-          {query.length > 0 && (
-            <TouchableOpacity onPress={() => setQuery('')}>
-              <Ionicons name="close-circle" size={18} color={colors.mutedForeground} />
+            <TouchableOpacity
+              onPress={() => router.push('/(tabs)/notifications')}
+              style={[styles.avatar, { backgroundColor: colors.primary + '22' }]}
+            >
+              <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+              {expiringCards.length > 0 && (
+                <View style={styles.alertBadgeDot} />
+              )}
             </TouchableOpacity>
-          )}
+          </View>
         </View>
 
         {/* Nearby card suggestion */}
-        {nearbySuggestion && query.length === 0 && (
+        {nearbySuggestion && (
           <TouchableOpacity
             style={[styles.nearbyBanner, { backgroundColor: colors.primary + '14', borderColor: colors.primary + '44' }]}
             onPress={() => router.push(`/card/${nearbySuggestion.card.id}`)}
@@ -184,7 +142,7 @@ export default function HomeScreen() {
         )}
 
         {/* Expiring soon banner */}
-        {expiringCards.length > 0 && query.length === 0 && (
+        {expiringCards.length > 0 && (
           <TouchableOpacity
             style={[styles.expiryBanner, { backgroundColor: colors.warning + '1A', borderColor: colors.warning + '44' }]}
             onPress={() => router.push('/(tabs)/notifications')}
@@ -197,35 +155,29 @@ export default function HomeScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Cards section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
-              {query ? 'Results' : 'My Cards'}
-            </Text>
-            <Text style={[styles.sectionCount, { color: colors.mutedForeground }]}>
-              {profileCards.length}
-            </Text>
-          </View>
-
-          {isLoading ? null : profileCards.length === 0 ? (
-            <View style={styles.emptyState}>
-              <View style={[styles.emptyIcon, { backgroundColor: colors.muted }]}>
-                <Ionicons name="card-outline" size={32} color={colors.mutedForeground} />
-              </View>
-              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
-                {query ? 'No cards found' : 'No cards yet'}
-              </Text>
-              <Text style={[styles.emptySubtitle, { color: colors.mutedForeground }]}>
-                {query ? 'Try a different search term' : 'Tap + to add your first card'}
-              </Text>
+        {/* ── Apple Wallet Interactive Stacked Deck ── */}
+        {isLoading ? null : myCards.length === 0 ? (
+          <View style={styles.empty}>
+            <View style={[styles.emptyIcon, { backgroundColor: colors.muted }]}>
+              <Ionicons name="card-outline" size={36} color={colors.mutedForeground} />
             </View>
-          ) : (
-            profileCards.map((card) => (
-              <CardItem key={card.id} card={card} onPress={() => router.push(`/card/${card.id}`)} />
-            ))
-          )}
-        </View>
+            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No cards yet</Text>
+            <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
+              Tap + to photograph and add your first card
+            </Text>
+            <TouchableOpacity
+              onPress={onFabPress}
+              style={[styles.emptyBtn, { backgroundColor: colors.primary }]}
+            >
+              <Text style={[styles.emptyBtnText, { color: colors.primaryForeground }]}>Add first card</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <StackedCardDeck
+            cards={myCards}
+            onCardPress={(card) => router.push(`/card/${card.id}`)}
+          />
+        )}
       </ScrollView>
 
       {/* FAB */}
@@ -254,7 +206,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   greeting: { fontSize: 13, fontFamily: 'Inter_400Regular' },
   name: { fontSize: 22, fontFamily: 'Inter_700Bold', marginTop: 2 },
@@ -265,32 +217,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  profileSwitcher: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-  },
-  profilePill: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  profilePillText: { fontSize: 13, fontFamily: 'Inter_500Medium' },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
-    height: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 16,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 15,
-    fontFamily: 'Inter_400Regular',
+  alertBadgeDot: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#EF4444',
   },
   nearbyBanner: {
     flexDirection: 'row',
@@ -299,7 +233,7 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 12,
     borderWidth: 1,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   nearbyTitle: { fontSize: 10, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.6 },
   nearbyCard: { fontSize: 14, fontFamily: 'Inter_600SemiBold', marginTop: 1 },
@@ -310,32 +244,15 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 12,
     borderWidth: 1,
-    marginBottom: 16,
-  },
-  expiryBannerText: { flex: 1, fontSize: 13, fontFamily: 'Inter_500Medium' },
-  section: { gap: 0 },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: 12,
   },
-  sectionTitle: { fontSize: 17, fontFamily: 'Inter_700Bold' },
-  sectionCount: {
-    fontSize: 13,
-    fontFamily: 'Inter_500Medium',
-    backgroundColor: 'transparent',
-  },
-  emptyState: { alignItems: 'center', paddingVertical: 48, gap: 12 },
-  emptyIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyTitle: { fontSize: 17, fontFamily: 'Inter_600SemiBold' },
-  emptySubtitle: { fontSize: 14, fontFamily: 'Inter_400Regular', textAlign: 'center' },
+  expiryBannerText: { flex: 1, fontSize: 13, fontFamily: 'Inter_500Medium' },
+  empty: { alignItems: 'center', justifyContent: 'center', paddingVertical: 48, gap: 14 },
+  emptyIcon: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center' },
+  emptyTitle: { fontSize: 18, fontFamily: 'Inter_700Bold' },
+  emptySub: { fontSize: 14, fontFamily: 'Inter_400Regular', textAlign: 'center', paddingHorizontal: 40 },
+  emptyBtn: { paddingHorizontal: 28, paddingVertical: 13, borderRadius: 14, marginTop: 4 },
+  emptyBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
   fab: {
     position: 'absolute',
     right: 24,

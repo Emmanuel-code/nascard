@@ -1,11 +1,11 @@
 ---
 name: Whop integration setup
-description: CardVault Pro subscription details and Whop account info
+description: nascard Pro subscription details and Whop account info
 ---
 
 Whop connection: conn_whop_01KWXS5QBV6H62V49Y95DDS7FR (healthy)
 Company ID: biz_HRId8MA5nrVXPq (stored as WHOP_COMPANY_ID config)
-Product ID: prod_lHG2IbQHWRDdj (CardVault Pro)
+Product ID: prod_lHG2IbQHWRDdj (nascard Pro)
 Plan ID: plan_4x6V5EzDcXzH2 (stored as WHOP_PLAN_ID config) — $4.99/mo renewal
 
 **Why:** These IDs are needed for checkout and access verification and are not in source code (stored as Replit configs).

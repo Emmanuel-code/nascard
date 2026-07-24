@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { ProfileType, UserProfile } from '@/types/card';
 
-const PROFILE_KEY = '@cardvault:profile';
+const PROFILE_KEY = '@nascard:profile';
 
 const defaultProfile: UserProfile = {
   displayName: '',

@@ -3,7 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import type { Card, ProfileType } from '@/types/card';
 import { getDaysUntilExpiry } from '@/types/card';
 
-const CARDS_KEY = '@cardvault:cards';
+const CARDS_KEY = '@nascard:cards';
 
 interface CardContextValue {
   cards: Card[];

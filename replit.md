@@ -1,11 +1,11 @@
-# CardVault
+# nascard
 
 A production Expo/React Native mobile app for digitizing and managing physical cards (ID, health, loyalty, membership) with security, OCR, and monetization.
 
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080, proxied at `/api`)
-- `pnpm --filter @workspace/cardvault run dev` — run the Expo app (port 25453)
+- `pnpm --filter @workspace/nascard run dev` — run the Expo app (port 25453)
 - `pnpm run typecheck` — full typecheck across all packages
 
 ## Stack
@@ -18,13 +18,13 @@ A production Expo/React Native mobile app for digitizing and managing physical c
 
 ## Where things live
 
-- `artifacts/cardvault/` — Expo mobile app
+- `artifacts/nascard/` — Expo mobile app
 - `artifacts/api-server/src/routes/` — Express API routes (health, ocr, whop)
 - `artifacts/api-server/src/whopClient.ts` — server-side Whop SDK singleton
-- `artifacts/cardvault/contexts/` — CardContext, ProfileContext, ProContext
-- `artifacts/cardvault/components/ProPaywall.tsx` — subscription paywall modal
-- `artifacts/cardvault/app/edit-card.tsx` — card edit screen (regulated fields locked)
-- `artifacts/cardvault/types/card.ts` — Card type definition
+- `artifacts/nascard/contexts/` — CardContext, ProfileContext, ProContext
+- `artifacts/nascard/components/ProPaywall.tsx` — subscription paywall modal
+- `artifacts/nascard/app/edit-card.tsx` — card edit screen (regulated fields locked)
+- `artifacts/nascard/types/card.ts` — Card type definition
 
 ## Architecture decisions
 

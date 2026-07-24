@@ -22,7 +22,7 @@ export function CardItem({ card, onPress }: Props) {
   const colors = useColors();
   const status = getExpiryStatus(card.expiryDate);
   const days = getDaysUntilExpiry(card.expiryDate);
-  const accentColor = PROFILE_COLORS[card.profileId] ?? colors.primary;
+  const accentColor = card.primaryColor || PROFILE_COLORS[card.profileId] || colors.primary;
 
   const expiryColor =
     status === 'expired'

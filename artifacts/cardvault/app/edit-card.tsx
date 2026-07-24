@@ -1,7 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import * as ImagePicker from 'expo-image-picker';
-import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -30,21 +28,7 @@ function isFieldLocked(cardType: Card['cardType'], field: string): boolean {
   return ['title', 'nameOnCard', 'idNumber', 'expiryDate'].includes(field);
 }
 
-async function pickImage(source: 'camera' | 'gallery'): Promise<string | null> {
-  const { status } =
-    source === 'camera'
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (status !== 'granted') return null;
 
-  const result =
-    source === 'camera'
-      ? await ImagePicker.launchCameraAsync({ quality: 0.85, base64: false })
-      : await ImagePicker.launchImageLibraryAsync({ quality: 0.85, base64: false });
-
-  if (result.canceled || !result.assets[0]) return null;
-  return result.assets[0].uri;
-}
 
 export default function EditCardScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -61,8 +45,6 @@ export default function EditCardScreen() {
     idNumber: card?.idNumber ?? '',
     expiryDate: card?.expiryDate ?? '',
     notes: card?.notes ?? '',
-    frontImageUri: card?.frontImageUri ?? null as string | null,
-    backImageUri: card?.backImageUri ?? null as string | null,
   });
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
@@ -92,14 +74,12 @@ export default function EditCardScreen() {
       updates.idNumber = form.idNumber.trim();
       updates.expiryDate = form.expiryDate;
     }
-    updates.frontImageUri = form.frontImageUri;
-    updates.backImageUri = form.backImageUri;
 
     await updateCard(card.id, updates);
     router.back();
   };
 
-  const set = (key: keyof typeof form, value: string | null) =>
+  const set = (key: keyof typeof form, value: string) =>
     setForm((f) => ({ ...f, [key]: value }));
 
   return (
@@ -122,7 +102,7 @@ export default function EditCardScreen() {
         <View style={[styles.regulationBanner, { backgroundColor: colors.warning + '18', borderColor: colors.warning + '55' }]}>
           <Ionicons name="lock-closed" size={15} color={colors.warning} />
           <Text style={[styles.regulationText, { color: colors.warning }]}>
-            Core fields on {card.cardType === 'id' ? 'government ID' : 'health'} cards are read-only to comply with document regulations. You can update photos and notes.
+            Core fields on {card.cardType === 'id' ? 'government ID' : 'health'} cards are read-only to comply with document regulations. You can update notes.
           </Text>
         </View>
       )}
@@ -193,57 +173,7 @@ export default function EditCardScreen() {
             />
           </View>
 
-          {/* Photos — always editable */}
-          <Text style={[styles.sectionLabel, { color: colors.foreground }]}>Photos</Text>
-          <Text style={[styles.sectionSub, { color: colors.mutedForeground }]}>
-            You can always update photos — they are your own copies.
-          </Text>
 
-          {(['front', 'back'] as const).map((side) => {
-            const key = side === 'front' ? 'frontImageUri' : 'backImageUri';
-            const uri = form[key];
-            return (
-              <View key={side} style={styles.photoBlock}>
-                <Text style={[styles.label, { color: colors.mutedForeground }]}>
-                  {side === 'front' ? 'Front' : 'Back'} photo
-                </Text>
-                {uri ? (
-                  <View style={styles.photoPreview}>
-                    <Image source={{ uri }} style={styles.photoImg} contentFit="cover" />
-                    <TouchableOpacity
-                      onPress={() => set(key, null)}
-                      style={[styles.removePhotoBtn, { backgroundColor: colors.expired + 'CC' }]}
-                    >
-                      <Ionicons name="trash" size={16} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <View style={styles.photoButtons}>
-                    <TouchableOpacity
-                      onPress={async () => {
-                        const u = await pickImage('camera');
-                        if (u) set(key, u);
-                      }}
-                      style={[styles.photoBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
-                    >
-                      <Ionicons name="camera" size={20} color={colors.primary} />
-                      <Text style={[styles.photoBtnText, { color: colors.foreground }]}>Camera</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={async () => {
-                        const u = await pickImage('gallery');
-                        if (u) set(key, u);
-                      }}
-                      style={[styles.photoBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
-                    >
-                      <Ionicons name="images" size={20} color={colors.primary} />
-                      <Text style={[styles.photoBtnText, { color: colors.foreground }]}>Gallery</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            );
-          })}
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -326,8 +256,6 @@ const styles = StyleSheet.create({
   },
   regulationText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', lineHeight: 19 },
   scroll: { paddingHorizontal: 20, gap: 4, paddingTop: 8 },
-  sectionLabel: { fontSize: 16, fontFamily: 'Inter_700Bold', marginTop: 16, marginBottom: 4 },
-  sectionSub: { fontSize: 13, fontFamily: 'Inter_400Regular', marginBottom: 12, lineHeight: 18 },
   fieldGroup: { marginBottom: 16 },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   label: { fontSize: 12, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.6 },
@@ -356,30 +284,5 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     minHeight: 90,
     textAlignVertical: 'top',
-  },
-  photoBlock: { marginBottom: 16 },
-  photoButtons: { flexDirection: 'row', gap: 12 },
-  photoBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    height: 50,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  photoBtnText: { fontSize: 14, fontFamily: 'Inter_500Medium' },
-  photoPreview: { position: 'relative', height: 140, borderRadius: 12, overflow: 'hidden' },
-  photoImg: { width: '100%', height: '100%' },
-  removePhotoBtn: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

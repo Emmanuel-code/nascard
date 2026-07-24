@@ -1,28 +1,31 @@
 {
   "expo": {
-    "name": "CardVault",
-    "slug": "cardvault",
+    "name": "nascard",
+    "slug": "nascard",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "cardvault",
+    "scheme": "nascard",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/images/icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#080C16"
-    },
     "ios": {
       "supportsTablet": false
     },
     "android": {
+      "package": "com.nascard.app",
       "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"]
     },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#080C16"
+        }
+      ],
       [
         "expo-router",
         {
@@ -34,8 +37,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "CardVault needs access to your photos to capture card images.",
-          "cameraPermission": "CardVault needs camera access to scan and photograph your cards."
+          "photosPermission": "nascard needs access to your photos to capture card images.",
+          "cameraPermission": "nascard needs camera access to scan and photograph your cards."
         }
       ]
     ],

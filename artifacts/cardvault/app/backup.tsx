@@ -71,8 +71,8 @@ export default function BackupScreen() {
     setBusy(true);
     try {
       const file = await importBackupFile();
-      if (file.app !== 'CardVault' || !file.data) {
-        throw new Error('This does not appear to be a CardVault backup file.');
+      if (file.app !== 'nascard' || !file.data) {
+        throw new Error('This does not appear to be a nascard backup file.');
       }
       setPendingFile(file);
       setStep('restore-pw');
@@ -164,7 +164,7 @@ export default function BackupScreen() {
               <View style={styles.actionText}>
                 <Text style={[styles.actionTitle, { color: colors.foreground }]}>Restore from Backup</Text>
                 <Text style={[styles.actionSub, { color: colors.mutedForeground }]}>
-                  Pick a .cvault file from your device
+                  Pick a .nascard file from your device
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />

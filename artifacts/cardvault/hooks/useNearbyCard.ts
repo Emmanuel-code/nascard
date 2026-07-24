@@ -59,7 +59,7 @@ export function useNearbyCard(cards: Card[]): {
       lastFetch.current = Date.now();
 
       const resp = await fetch(REVERSE_GEO_URL(loc.coords.latitude, loc.coords.longitude), {
-        headers: { 'User-Agent': 'CardVault/1.0' },
+        headers: { 'User-Agent': 'nascard/1.0' },
       });
       const data = await resp.json();
       const placeName: string =

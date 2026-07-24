@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import React, { useCallback, useRef } from 'react';
 import {
@@ -18,9 +19,9 @@ export const CARD_W = Math.min(SCREEN_W - 48, 360);
 export const CARD_H = CARD_W / 1.586;
 
 const PROFILE_GRADIENTS: Record<string, [string, string]> = {
-  personal: ['#1B2B4B', '#0D1B33'],
+  personal: ['#0F172A', '#1E293B'],
   work: ['#2A1B4B', '#1A0D33'],
-  student: ['#1B3B4B', '#0D2433'],
+  student: ['#1E3A8A', '#0F172A'],
 };
 
 const TYPE_ACCENT: Record<string, string> = {
@@ -33,11 +34,12 @@ const TYPE_ACCENT: Record<string, string> = {
 interface Props {
   card: Card;
   onPress: () => void;
-  index: number;
-  total: number;
+  index?: number;
+  total?: number;
+  isStacked?: boolean;
 }
 
-export function WalletCard3D({ card, onPress, index, total }: Props) {
+export function WalletCard3D({ card, onPress, isStacked }: Props) {
   const colors = useColors();
   const flipAnim = useRef(new Animated.Value(0)).current;
   const isFlipped = useRef(false);
@@ -62,20 +64,26 @@ export function WalletCard3D({ card, onPress, index, total }: Props) {
 
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   React.useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(shimmerAnim, { toValue: 1, duration: 3000, useNativeDriver: true }),
-        Animated.timing(shimmerAnim, { toValue: 0, duration: 0, useNativeDriver: false }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
+    const runShimmer = () => {
+      shimmerAnim.setValue(0);
+      Animated.timing(shimmerAnim, {
+        toValue: 1,
+        duration: 3500,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) runShimmer();
+      });
+    };
+    runShimmer();
+    return () => shimmerAnim.stopAnimation();
   }, [shimmerAnim]);
 
   const shimmerX = shimmerAnim.interpolate({ inputRange: [0, 1], outputRange: [-CARD_W, CARD_W * 2] });
 
+  const hasPhoto = Boolean(card.frontImageUri);
+
   return (
-    <TouchableOpacity onPress={onPress} onLongPress={flipCard} activeOpacity={0.9} delayLongPress={150}>
+    <TouchableOpacity onPress={onPress} onLongPress={flipCard} activeOpacity={0.92} delayLongPress={160}>
       <View style={[styles.cardOuter, { width: CARD_W, height: CARD_H }]}>
         {/* FRONT */}
         <Animated.View
@@ -86,7 +94,16 @@ export function WalletCard3D({ card, onPress, index, total }: Props) {
             { transform: [{ perspective: 1200 }, { rotateY: frontInterpolate }], opacity: frontOpacity },
           ]}
         >
-          {/* Holographic shimmer strip */}
+          {/* Real Photo of Physical Document/Card (Edge-to-Edge) */}
+          {hasPhoto ? (
+            <Image
+              source={{ uri: card.frontImageUri! }}
+              style={StyleSheet.absoluteFillObject}
+              contentFit="cover"
+            />
+          ) : null}
+
+          {/* Holographic shimmer strip overlay */}
           <Animated.View
             style={[
               styles.shimmer,
@@ -98,28 +115,40 @@ export function WalletCard3D({ card, onPress, index, total }: Props) {
           {/* Accent top bar */}
           <View style={[styles.accentBar, { backgroundColor: accent }]} />
 
-          {/* Card chip */}
-          <View style={[styles.chip, { borderColor: accent + '88' }]}>
-            <View style={[styles.chipInner, { backgroundColor: accent + '44' }]} />
-          </View>
+          {/* Card chip (shown if no custom photo or on digital cards) */}
+          {!hasPhoto && (
+            <View style={[styles.chip, { borderColor: accent + '88' }]}>
+              <View style={[styles.chipInner, { backgroundColor: accent + '44' }]} />
+            </View>
+          )}
 
-          {/* Image or placeholder */}
-          {card.frontImageUri ? (
-            <Image source={{ uri: card.frontImageUri }} style={styles.cardBgImg} contentFit="cover" />
-          ) : null}
-
-          {/* Dark overlay for text legibility */}
-          <View style={styles.cardOverlay} />
+          {/* Gradient Overlay for Text Protection */}
+          <LinearGradient
+            colors={
+              hasPhoto
+                ? ['rgba(0,0,0,0.45)', 'transparent', 'rgba(0,0,0,0.85)']
+                : ['rgba(5,10,20,0.3)', 'rgba(5,10,20,0.65)']
+            }
+            style={StyleSheet.absoluteFillObject}
+          />
 
           {/* Content */}
           <View style={styles.cardContent}>
             <View style={styles.cardTopRow}>
-              <View style={[styles.typeBadge, { backgroundColor: accent + '33', borderColor: accent + '66' }]}>
-                <Text style={[styles.typeText, { color: accent }]}>{card.cardType.toUpperCase()}</Text>
+              <View style={[styles.typeBadge, { backgroundColor: accent + '44', borderColor: accent + 'AA' }]}>
+                <Text style={[styles.typeText, { color: '#FFFFFF' }]}>{card.cardType.toUpperCase()}</Text>
               </View>
-              {card.isPartnerIssued && (
-                <Ionicons name="shield-checkmark" size={14} color={accent} />
-              )}
+              {card.isPartnerIssued ? (
+                <View style={styles.verifiedBadge}>
+                  <Ionicons name="shield-checkmark" size={13} color="#F59E0B" />
+                  <Text style={styles.verifiedText}>VERIFIED PASS</Text>
+                </View>
+              ) : hasPhoto ? (
+                <View style={styles.photoDocBadge}>
+                  <Ionicons name="camera" size={12} color="#FFFFFF" />
+                  <Text style={styles.photoDocText}>PHYSICAL DOC</Text>
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.cardBottom}>
@@ -130,7 +159,7 @@ export function WalletCard3D({ card, onPress, index, total }: Props) {
               <View style={styles.cardFooter}>
                 {card.idNumber ? (
                   <Text style={styles.cardNumber}>
-                    {'•••• ' + card.idNumber.slice(-4)}
+                    {card.idNumber.length > 8 ? '•••• ' + card.idNumber.slice(-4) : card.idNumber}
                   </Text>
                 ) : null}
                 {card.expiryDate ? (
@@ -142,7 +171,7 @@ export function WalletCard3D({ card, onPress, index, total }: Props) {
             </View>
           </View>
 
-          <Text style={styles.flipHint}>Hold to flip</Text>
+          <Text style={styles.flipHint}>Hold to flip 3D</Text>
         </Animated.View>
 
         {/* BACK */}
@@ -162,7 +191,7 @@ export function WalletCard3D({ card, onPress, index, total }: Props) {
               {card.notes ? (
                 <Text style={styles.backNotes} numberOfLines={4}>{card.notes}</Text>
               ) : (
-                <Text style={styles.backEmpty}>No back side</Text>
+                <Text style={styles.backEmpty}>Official nascard Encrypted Document Pass</Text>
               )}
             </View>
           )}
@@ -183,8 +212,8 @@ const styles = StyleSheet.create({
     backfaceVisibility: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
+    shadowOpacity: 0.45,
+    shadowRadius: 18,
     elevation: 16,
   },
   cardFront: {},
@@ -192,13 +221,13 @@ const styles = StyleSheet.create({
   shimmer: {
     position: 'absolute',
     top: -40,
-    width: 60,
+    width: 65,
     height: CARD_H + 80,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.18)',
     transform: [{ rotate: '20deg' }],
     zIndex: 10,
   },
-  accentBar: { position: 'absolute', top: 0, left: 0, right: 0, height: 4 },
+  accentBar: { position: 'absolute', top: 0, left: 0, right: 0, height: 4, zIndex: 12 },
   chip: {
     position: 'absolute',
     top: 24,
@@ -208,9 +237,9 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     borderWidth: 1,
     overflow: 'hidden',
+    zIndex: 11,
   },
   chipInner: { flex: 1, margin: 2, borderRadius: 3 },
-  cardBgImg: { ...StyleSheet.absoluteFillObject },
   cardOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(5,10,20,0.62)',
@@ -219,30 +248,41 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     padding: 20,
     justifyContent: 'space-between',
+    zIndex: 15,
   },
-  cardTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-end' },
+  cardTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   typeBadge: {
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
   },
   typeText: { fontSize: 9, fontFamily: 'Inter_700Bold', letterSpacing: 1 },
+  verifiedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  verifiedText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#F59E0B' },
+  photoDocBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  photoDocText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#FFFFFF' },
   cardBottom: { gap: 4 },
   cardTitle: {
-    fontSize: 18,
+    fontSize: 19,
     fontFamily: 'Inter_700Bold',
     color: '#fff',
     letterSpacing: 0.3,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   cardName: {
     fontSize: 13,
     fontFamily: 'Inter_500Medium',
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(255,255,255,0.9)',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
-  cardNumber: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: 'rgba(255,255,255,0.8)', letterSpacing: 2 },
-  cardExpiry: { fontSize: 12, fontFamily: 'Inter_500Medium', color: 'rgba(255,255,255,0.6)' },
+  cardNumber: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#FFFFFF', letterSpacing: 1.5 },
+  cardExpiry: { fontSize: 12, fontFamily: 'Inter_500Medium', color: 'rgba(255,255,255,0.85)' },
   expired: { color: '#FF6B6B' },
   expiring: { color: '#F59E0B' },
   flipHint: {
@@ -251,8 +291,9 @@ const styles = StyleSheet.create({
     right: 14,
     fontSize: 9,
     fontFamily: 'Inter_400Regular',
-    color: 'rgba(255,255,255,0.3)',
+    color: 'rgba(255,255,255,0.4)',
     letterSpacing: 0.5,
+    zIndex: 15,
   },
   magneticStripe: {
     position: 'absolute',
@@ -282,9 +323,9 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   backEmpty: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: 'Inter_400Regular',
-    color: 'rgba(255,255,255,0.3)',
+    color: 'rgba(255,255,255,0.4)',
     textAlign: 'center',
   },
 });

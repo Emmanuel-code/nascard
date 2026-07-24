@@ -100,7 +100,7 @@ export function BarcodeScanner({ onScanned, onClose }: Props) {
           <Text style={[styles.fallbackSub, { color: colors.mutedForeground }]}>
             {Platform.OS === 'web'
               ? 'Live scanning is only available on iOS and Android. Enter the barcode number manually.'
-              : 'Enable camera access in Settings → CardVault to scan barcodes.'}
+              : 'Enable camera access in Settings → nascard to scan barcodes.'}
           </Text>
           <TouchableOpacity onPress={onClose} style={[styles.fallbackBtn, { backgroundColor: colors.primary }]}>
             <Text style={[styles.fallbackBtnText, { color: colors.primaryForeground }]}>Got it</Text>

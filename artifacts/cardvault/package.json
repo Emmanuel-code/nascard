@@ -1,5 +1,5 @@
 {
-  "name": "@workspace/cardvault",
+  "name": "@workspace/nascard",
   "version": "0.0.0",
   "private": true,
   "main": "expo-router/entry",
@@ -67,6 +67,7 @@
     "expo-notifications": "^0.32.17",
     "expo-sharing": "^14.0.8",
     "react-native-barcode-svg": "^0.0.15",
-    "react-native-qrcode-svg": "^6.3.21"
+    "react-native-qrcode-svg": "^6.3.21",
+    "react-native-webview": "^13.12.5"
   }
 }

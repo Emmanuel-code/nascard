@@ -1,4 +1,4 @@
-## CardVault – Full App Brainstorm & Setup: Splashscreen to Finish
+## nascard – Full App Brainstorm & Setup: Splashscreen to Finish
 
 ### 1. App Overview
 
@@ -43,7 +43,7 @@ Expiry Management:
 ### 3. Screen-by-Screen Specification
 
 #### 3.1 Splash Screen
-- White background with CardVault logo + animated card icon flipping.
+- White background with nascard logo + animated card icon flipping.
 - Checks for existing encrypted local data.
 - If first launch → go to Onboarding. If existing user → go to Home (requires PIN/biometric if enabled).
 
@@ -134,8 +134,8 @@ Expiry Management:
 - Behind the QR is encoded:
   - Signed token (card data + expiry timestamp + signature)
   - One-time-use nonce (prevents replay)
-- Guard opens **CardVault Reader** (free app or PWA) → scans QR.
-- Reader decrypts token, checks signature against CardVault public key (cached), shows:
+- Guard opens **nascard Reader** (free app or PWA) → scans QR.
+- Reader decrypts token, checks signature against nascard public key (cached), shows:
   - User’s display name, photo (if any), ID number, expiry.
   - “VALID until [time]” with green pulsing background.
 - After scan, QR invalidated locally (cannot be rescanned).
@@ -171,7 +171,7 @@ Expiry Management:
 - **Member management:**
   - Upload CSV (name, email, phone, ID number, expiry, photo URL)
   - Or sync via API from their existing system.
-- **Issue digital cards:** CardVault sends push notification to user’s app → card appears automatically with blue verified badge.
+- **Issue digital cards:** nascard sends push notification to user’s app → card appears automatically with blue verified badge.
 - **Revoke:** Remove a user’s card if they lose phone or leave institution.
 - **Renewals:** Set custom renewal URL or enable in-app payment (via Stripe/Mobile Money).
 - **Analytics:** Number of active users, verification attempts, expiry alerts.
@@ -231,14 +231,14 @@ Expiry Management:
   "card_photo_hash": "sha256(optional)"
 }
 ```
-Signed with CardVault’s Ed25519 private key. Token validity = 24 hours (or shorter for one-time QR).
+Signed with nascard’s Ed25519 private key. Token validity = 24 hours (or shorter for one-time QR).
 
 #### 4.4 Security Architecture
 
 - **No server-side storage** of raw card images or extracted data (except partner-issued cards metadata – name, ID, expiry, no photo).
 - **All encryption/decryption on device.** Backup files are encrypted before leaving device.
 - **Reader app** never sends data to any server – only verifies signatures locally using cached public key.
-- **Token revocation:** If user loses phone, they can log into CardVault web (using email) and request revocation of all tokens for that device. Partner can also revoke their issued cards.
+- **Token revocation:** If user loses phone, they can log into nascard web (using email) and request revocation of all tokens for that device. Partner can also revoke their issued cards.
 
 ---
 
@@ -281,16 +281,16 @@ Signed with CardVault’s Ed25519 private key. Token validity = 24 hours (or sho
 - Option to cache public key via QR (institution can load their own key for air-gapped use).
 
 **Public key distribution:**
-- CardVault public key is hardcoded in Reader (updated via app store).
-- Advanced: allow institution to load their own key for offline verification of their own issued cards (bypassing CardVault entirely).
+- nascard public key is hardcoded in Reader (updated via app store).
+- Advanced: allow institution to load their own key for offline verification of their own issued cards (bypassing nascard entirely).
 
 ---
 
 ### 7. What the final product looks like (User’s words)
 
-> “I open CardVault, see my KNUST ID and NHIS card. Tap the ID, then ‘Verify for guard’. A big QR appears with a moving border. The library guard opens the free CardVault Reader app on their phone, scans it, and sees my photo and ‘VALID’ in green. I walk in. No plastic needed.”
+> “I open nascard, see my KNUST ID and NHIS card. Tap the ID, then ‘Verify for guard’. A big QR appears with a moving border. The library guard opens the free nascard Reader app on their phone, scans it, and sees my photo and ‘VALID’ in green. I walk in. No plastic needed.”
 
-> “My gym joined CardVault. I got a notification: ‘Your gym card is now digital’. It appears with a blue checkmark. When my membership expires, the app shows a ‘Renew for GHS 100’ button. I pay with Momo, and the expiry updates automatically.”
+> “My gym joined nascard. I got a notification: ‘Your gym card is now digital’. It appears with a blue checkmark. When my membership expires, the app shows a ‘Renew for GHS 100’ button. I pay with Momo, and the expiry updates automatically.”
 
 ---
 
@@ -301,7 +301,7 @@ Signed with CardVault’s Ed25519 private key. Token validity = 24 hours (or sho
 | Guard refuses QR | Pilot with one gate; train staff; offer plastic backup as fallback |
 | Screenshot replay | Moving pattern + one-time nonce + reader checks timestamp |
 | Phone lost | Remote revocation via email; partner can revoke; tokens expire daily |
-| Legal (forgery) | Clear ToS: “User affirms they own the physical card. CardVault does not assert validity.” |
+| Legal (forgery) | Clear ToS: “User affirms they own the physical card. nascard does not assert validity.” |
 
 ---
 

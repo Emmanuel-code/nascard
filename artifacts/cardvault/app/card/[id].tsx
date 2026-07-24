@@ -52,7 +52,7 @@ function buildShareUrl(token: string): string {
   }
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
   if (domain) return `https://${domain}/share/${token}`;
-  return `cardvault://share/${token}`;
+  return `nascard://share/${token}`;
 }
 
 export default function CardDetailScreen() {
@@ -111,7 +111,7 @@ export default function CardDetailScreen() {
           await Sharing.shareAsync(shareUrl, { dialogTitle: `Share ${card.title}` });
           return;
         }
-      } catch {}
+      } catch { }
     }
     setShareModalVisible(true);
   };
@@ -135,7 +135,7 @@ export default function CardDetailScreen() {
   const handleDelete = () => {
     Alert.alert(
       'Delete Card',
-      `Remove "${card.title}" from CardVault?`,
+      `Remove "${card.title}" from nascard?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -181,14 +181,14 @@ export default function CardDetailScreen() {
           <View style={styles.carouselWrap}>
             <FlatList
               data={images}
-              keyExtractor={(_, i) => String(i)}
+              keyExtractor={(_: any, i: number) => String(i)}
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
-              onMomentumScrollEnd={(e) => {
+              onMomentumScrollEnd={(e: any) => {
                 setImageIndex(Math.round(e.nativeEvent.contentOffset.x / (width - 40)));
               }}
-              renderItem={({ item }) => (
+              renderItem={({ item }: { item: string }) => (
                 <Image
                   source={{ uri: item }}
                   style={[styles.cardImage, { width: width - 40 }]}
@@ -198,7 +198,7 @@ export default function CardDetailScreen() {
             />
             {images.length > 1 && (
               <View style={styles.imageDots}>
-                {images.map((_, i) => (
+                {images.map((_: any, i: number) => (
                   <View
                     key={i}
                     style={[
@@ -235,16 +235,16 @@ export default function CardDetailScreen() {
             <CardTypeIcon cardType={card.cardType} size={36} />
             <View style={styles.typeInfo}>
               <Text style={[styles.typeLabel, { color: colors.mutedForeground }]}>
-                {CARD_TYPE_LABELS[card.cardType]}
+                {card.orgName ? card.orgName : CARD_TYPE_LABELS[card.cardType]}
               </Text>
-              <Text style={[styles.profileLabel, { color: colors.foreground }]}>
-                {PROFILE_LABELS[card.profileId]}
+              <Text style={[styles.profileLabel, { color: card.primaryColor || colors.foreground }]}>
+                {card.isPartnerIssued ? 'Official Partner Pass' : PROFILE_LABELS[card.profileId]}
               </Text>
             </View>
             {card.isPartnerIssued && (
-              <View style={[styles.verifiedBadge, { backgroundColor: colors.verified + '22' }]}>
-                <Ionicons name="shield-checkmark" size={12} color={colors.verified} />
-                <Text style={[styles.verifiedText, { color: colors.verified }]}>Verified</Text>
+              <View style={[styles.verifiedBadge, { backgroundColor: (card.primaryColor || colors.verified) + '22' }]}>
+                <Ionicons name="shield-checkmark" size={12} color={card.primaryColor || colors.verified} />
+                <Text style={[styles.verifiedText, { color: card.primaryColor || colors.verified }]}>Verified Pass</Text>
               </View>
             )}
           </View>
@@ -257,6 +257,16 @@ export default function CardDetailScreen() {
               <Text style={[styles.fieldValue, { color: colors.foreground }]}>{card.nameOnCard}</Text>
             </View>
           ) : null}
+
+          {/* Custom Org Fields */}
+          {card.customFields
+            ? Object.entries(card.customFields).map(([key, val]: [string, string]) => (
+              <View key={key} style={styles.field}>
+                <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>{key}</Text>
+                <Text style={[styles.fieldValue, { color: colors.foreground }]}>{val}</Text>
+              </View>
+            ))
+            : null}
 
           {card.idNumber ? (
             <View style={styles.field}>

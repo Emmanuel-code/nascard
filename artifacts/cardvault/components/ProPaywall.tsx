@@ -115,7 +115,7 @@ export function ProPaywall({ visible, onClose }: Props) {
               <Text style={styles.crownEmoji}>👑</Text>
             </View>
 
-            <Text style={[styles.title, { color: colors.foreground }]}>Upgrade to CardVault Pro</Text>
+            <Text style={[styles.title, { color: colors.foreground }]}>Upgrade to nascard Pro</Text>
             <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
               Everything you need to manage, protect, and access all your cards.
             </Text>

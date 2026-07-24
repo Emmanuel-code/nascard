@@ -7,6 +7,7 @@ import {
   Modal,
   Platform,
   ScrollView,
+  Share,
   StyleSheet,
   Switch,
   Text,
@@ -167,7 +168,7 @@ export default function ProfileScreen() {
           <View style={[styles.proBanner, { backgroundColor: colors.primary + '18', borderColor: colors.primary + '44' }]}>
             <Text style={styles.proEmoji}>👑</Text>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.proTitle, { color: colors.primary }]}>CardVault Pro</Text>
+              <Text style={[styles.proTitle, { color: colors.primary }]}>nascard Pro</Text>
               <Text style={[styles.proSub, { color: colors.mutedForeground }]}>All features unlocked</Text>
             </View>
             <View style={[styles.proBadge, { backgroundColor: colors.primary }]}>
@@ -341,30 +342,107 @@ export default function ProfileScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
           </TouchableOpacity>
+
+          {/* Share nascard App */}
+          <TouchableOpacity
+            onPress={async () => {
+              try {
+                await Share.share({
+                  message: '📱 Ditch your plastic cards! Download nascard to store your cards in a 3D Apple Wallet & claim digital passes for your school, gym, or office.\n\nDownload now: https://nascard.app',
+                  title: 'nascard - 3D Digital Card Wallet',
+                });
+              } catch (e) {}
+            }}
+            style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="share-social-outline" size={20} color={colors.primary} />
+            <View style={styles.rowContent}>
+              <Text style={[styles.rowText, { color: colors.foreground }]}>Share nascard App</Text>
+              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>
+                Invite friends or classmates to try the 3D wallet
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+          </TouchableOpacity>
         </View>
 
         {/* About section */}
         <View style={styles.sectionGroup}>
-          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>ABOUT</Text>
-          {[
-            { icon: 'document-text-outline', label: 'Privacy Policy' },
-            { icon: 'clipboard-outline', label: 'Terms of Service' },
-            { icon: 'mail-outline', label: 'Contact Support' },
-          ].map((item) => (
-            <TouchableOpacity
-              key={item.label}
-              style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
-              activeOpacity={0.7}
-            >
-              <Ionicons name={item.icon as any} size={20} color={colors.mutedForeground} />
-              <Text style={[styles.rowText, { color: colors.foreground }]}>{item.label}</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
-            </TouchableOpacity>
-          ))}
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>ABOUT NASCARD</Text>
+
+          {/* App Overview */}
+          <TouchableOpacity
+            style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onPress={() =>
+              Alert.alert(
+                'About nascard',
+                'nascard is a high-security, 3D interactive digital card wallet & partner pass platform. Replace physical plastic cards with instant, verified digital passes for gyms, schools, clubs, and workplaces.',
+              )
+            }
+            activeOpacity={0.7}
+          >
+            <Ionicons name="sparkles-outline" size={20} color={colors.primary} />
+            <Text style={[styles.rowText, { color: colors.foreground }]}>About nascard</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+          </TouchableOpacity>
+
+          {/* Privacy Policy */}
+          <TouchableOpacity
+            style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onPress={() =>
+              Alert.alert(
+                'Privacy Policy',
+                '1. Data Privacy: Your personal card photos and details are encrypted and stored locally on your device.\n\n2. Camera Access: Camera permissions are strictly used for scanning barcodes and capturing card photos.\n\n3. Zero Selling: We never sell or share your personal card data with third parties.',
+              )
+            }
+            activeOpacity={0.7}
+          >
+            <Ionicons name="document-text-outline" size={20} color={colors.mutedForeground} />
+            <Text style={[styles.rowText, { color: colors.foreground }]}>Privacy Policy</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+          </TouchableOpacity>
+
+          {/* Terms of Service */}
+          <TouchableOpacity
+            style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onPress={() =>
+              Alert.alert(
+                'Terms of Service',
+                '1. Acceptable Use: You agree to upload only legitimate document photos that belong to you or your organization.\n\n2. Organization Passes: Official digital passes issued by partners are verified using dynamic cryptographic QR tokens.\n\n3. Payments & Fees: Payouts and membership fees are processed securely via Paystack.',
+              )
+            }
+            activeOpacity={0.7}
+          >
+            <Ionicons name="clipboard-outline" size={20} color={colors.mutedForeground} />
+            <Text style={[styles.rowText, { color: colors.foreground }]}>Terms of Service</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+          </TouchableOpacity>
+
+          {/* Contact Support */}
+          <TouchableOpacity
+            style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onPress={() =>
+              Alert.alert(
+                'Contact Support',
+                'Need help or have feedback?\n\n📧 Email: support@nascard.app\n🌐 Website: https://nascard.app\n⚡ Live Chat: Available in Partner Hub',
+              )
+            }
+            activeOpacity={0.7}
+          >
+            <Ionicons name="mail-outline" size={20} color={colors.mutedForeground} />
+            <Text style={[styles.rowText, { color: colors.foreground }]}>Contact Support</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+          </TouchableOpacity>
+
+          {/* Version Info */}
           <View style={[styles.versionRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Ionicons name="information-circle-outline" size={20} color={colors.mutedForeground} />
-            <Text style={[styles.rowText, { color: colors.foreground }]}>Version</Text>
-            <Text style={[styles.versionText, { color: colors.mutedForeground }]}>1.0.0</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowText, { color: colors.foreground }]}>Version</Text>
+              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>Release Candidate v1.0.0 (Expo SDK 54)</Text>
+            </View>
+            <Text style={[styles.versionText, { color: colors.primary, fontFamily: 'Inter_700Bold' }]}>v1.0.0</Text>
           </View>
         </View>
       </ScrollView>

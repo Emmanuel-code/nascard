@@ -180,7 +180,7 @@ export default function SharePage() {
             <Text style={[styles.qrLabel, { color: colors.mutedForeground }]}>QR Code</Text>
             <View style={styles.qrWrap}>
               <QRCode
-                value={`${typeof window !== 'undefined' ? window.location.href : `cardvault://share/${token}`}`}
+                value={`${typeof window !== 'undefined' ? window.location.href : `nascard://share/${token}`}`}
                 size={160}
                 color={colors.foreground}
                 backgroundColor={colors.card}

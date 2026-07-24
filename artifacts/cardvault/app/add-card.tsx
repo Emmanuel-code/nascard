@@ -2,7 +2,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { BarcodeScanner, mapBarcodeType } from '@/components/BarcodeScanner';
 import type { BarcodeResult } from '@/components/BarcodeScanner';
@@ -101,9 +101,10 @@ export default function AddCardScreen() {
   const { isPro } = usePro();
   const [paywallVisible, setPaywallVisible] = useState(false);
   const atLimit = !isPro && cards.length >= FREE_CARD_LIMIT;
+  const { autoScan } = useLocalSearchParams<{ autoScan?: string }>();
   const [step, setStep] = useState(0);
   const [ocrStatus, setOcrStatus] = useState<OcrStatus>('idle');
-  const [showScanner, setShowScanner] = useState(false);
+  const [showScanner, setShowScanner] = useState(autoScan === 'true');
   const [barcodeScanned, setBarcodeScanned] = useState(false);
 
   const [form, setForm] = useState<FormData>({
@@ -159,16 +160,30 @@ export default function AddCardScreen() {
   };
 
   const handleFrontImageCaptured = async (uri: string) => {
-    setForm((f) => ({ ...f, frontImageUri: uri }));
+    const defaultTitle =
+      form.cardType === 'id'
+        ? 'National ID Card'
+        : form.cardType === 'health'
+          ? 'Health Insurance Pass'
+          : form.cardType === 'membership'
+            ? 'Membership Card'
+            : 'Personal Card';
+
+    setForm((f: any) => ({
+      ...f,
+      frontImageUri: uri,
+      title: f.title || defaultTitle,
+    }));
+
     setOcrStatus('scanning');
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     const result = await scanCardImage(uri, form.cardType);
 
     if (result) {
-      setForm((f) => ({
+      setForm((f: any) => ({
         ...f,
-        title: result.title || f.title,
+        title: result.title || f.title || defaultTitle,
         nameOnCard: result.nameOnCard || f.nameOnCard,
         idNumber: result.idNumber || f.idNumber,
         expiryDate: result.expiryDate || f.expiryDate,
@@ -182,7 +197,7 @@ export default function AddCardScreen() {
 
   const handleBarcodeScan = (result: BarcodeResult) => {
     const fmt = mapBarcodeType(result.type);
-    setForm((f) => ({ ...f, idNumber: result.value, barcodeFormat: fmt }));
+    setForm((f: any) => ({ ...f, idNumber: result.value, barcodeFormat: fmt }));
     setBarcodeScanned(true);
     setShowScanner(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -416,11 +431,34 @@ export default function AddCardScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* Instant Quick Save Option */}
+          {form.frontImageUri && (
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                height: 48,
+                borderRadius: 12,
+                backgroundColor: colors.primary,
+                marginTop: 12,
+              }}
+              onPress={handleSave}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="checkmark-circle" size={20} color={colors.primaryForeground} />
+              <Text style={{ fontSize: 15, fontFamily: 'Inter_700Bold', color: colors.primaryForeground }}>
+                Instant Save Card ({form.title || 'Photo Card'})
+              </Text>
+            </TouchableOpacity>
+          )}
+
           {/* OCR hint */}
           <View style={[styles.ocrHint, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Ionicons name="sparkles" size={16} color={colors.primary} />
             <Text style={[styles.ocrHintText, { color: colors.mutedForeground }]}>
-              Powered by GPT-4o Vision — your image is sent once for scanning and not stored
+              The photo IS your 3D digital card face. Extra text details are 100% optional.
             </Text>
           </View>
         </ScrollView>
@@ -544,11 +582,7 @@ export default function AddCardScreen() {
             )}
 
             {[
-              { label: 'Card Title *', key: 'title', placeholder: 'e.g. KNUST Student ID', caps: 'words' as const },
-              { label: 'Name on Card', key: 'nameOnCard', placeholder: 'As printed on card', caps: 'words' as const },
-              { label: 'ID / Card Number', key: 'idNumber', placeholder: 'Used to generate barcode', caps: 'characters' as const },
-              { label: 'Expiry Date', key: 'expiryDate', placeholder: 'YYYY-MM-DD', caps: 'none' as const },
-              { label: 'Notes', key: 'notes', placeholder: 'Optional notes', caps: 'sentences' as const },
+              { label: 'Card Name / Title *', key: 'title', placeholder: 'e.g. Ghana National ID, Health Card', caps: 'words' as const },
             ].map((field) => {
               const hasOcrValue =
                 ocrStatus === 'done' &&
@@ -569,7 +603,7 @@ export default function AddCardScreen() {
                   </View>
                   <TextInput
                     value={form[field.key as keyof FormData] as string}
-                    onChangeText={(v) => setForm((f) => ({ ...f, [field.key]: v }))}
+                    onChangeText={(v: string) => setForm((f: any) => ({ ...f, [field.key]: v }))}
                     placeholder={field.placeholder}
                     placeholderTextColor={colors.mutedForeground}
                     autoCapitalize={field.caps}

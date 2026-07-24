@@ -61,7 +61,7 @@ export function LockScreen({ onUnlocked }: Props) {
     const LA = await getLocalAuth();
     if (!LA) return;
     const result = await LA.authenticateAsync({
-      promptMessage: 'Unlock CardVault',
+      promptMessage: 'Unlock nascard',
       fallbackLabel: hasPin ? 'Use PIN' : 'Use Passcode',
       cancelLabel: 'Cancel',
       disableDeviceFallback: !hasPin, // if no PIN, allow device passcode fallback
@@ -99,7 +99,7 @@ export function LockScreen({ onUnlocked }: Props) {
         </View>
         <PinPad
           title="Enter PIN"
-          subtitle="Enter your CardVault PIN to unlock"
+          subtitle="Enter your nascard PIN to unlock"
           onComplete={handlePinComplete}
           error={pinError}
         />
@@ -119,7 +119,7 @@ export function LockScreen({ onUnlocked }: Props) {
         <View style={[styles.iconWrap, { backgroundColor: colors.primary + '18', borderColor: colors.primary + '44' }]}>
           <Ionicons name="shield-checkmark-outline" size={48} color={colors.primary} />
         </View>
-        <Text style={[styles.title, { color: colors.foreground }]}>CardVault is locked</Text>
+        <Text style={[styles.title, { color: colors.foreground }]}>nascard is locked</Text>
         <Text style={[styles.sub, { color: colors.mutedForeground }]}>
           Authenticate to access your cards
         </Text>

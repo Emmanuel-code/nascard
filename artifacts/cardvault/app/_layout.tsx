@@ -8,7 +8,7 @@ import {
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -17,10 +17,10 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { CardProvider, useCards } from '@/contexts/CardContext';
 import { ProfileProvider, useProfile } from '@/contexts/ProfileContext';
 import { ProProvider } from '@/contexts/ProContext';
+import { OrgProvider } from '@/contexts/OrgContext';
 import {
   cancelAllNotifications,
   configureNotificationHandler,
-  requestNotificationPermission,
   scheduleExpiryNotifications,
 } from '@/lib/notifications';
 
@@ -46,6 +46,12 @@ function RootLayoutNav() {
       <Stack.Screen name="share/[token]" />
       <Stack.Screen name="backup" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
       <Stack.Screen name="edit-card" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="org" />
+      <Stack.Screen name="org/create" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="org/join/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="org/manage/[id]" />
+      <Stack.Screen name="org/scan-verify" options={{ presentation: 'fullScreenModal' }} />
+      <Stack.Screen name="org/payment" options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }} />
     </Stack>
   );
 }
@@ -129,9 +135,11 @@ export default function RootLayout() {
           <ProfileProvider>
             <CardProvider>
               <ProProvider>
-                <GestureHandlerRootView style={{ flex: 1 }}>
-                  <AppCore />
-                </GestureHandlerRootView>
+                <OrgProvider>
+                  <GestureHandlerRootView style={{ flex: 1 }}>
+                    <AppCore />
+                  </GestureHandlerRootView>
+                </OrgProvider>
               </ProProvider>
             </CardProvider>
           </ProfileProvider>

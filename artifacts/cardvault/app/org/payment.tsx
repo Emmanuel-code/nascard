@@ -1,0 +1,230 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { WebView, type WebViewNavigation } from 'react-native-webview';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useOrg } from '@/contexts/OrgContext';
+import { useColors } from '@/hooks/useColors';
+
+export default function PaymentScreen() {
+  const {
+    orgId,
+    authorizationUrl,
+    reference,
+    memberName,
+    memberEmail,
+    customFieldsData: rawFields,
+  } = useLocalSearchParams<{
+    orgId: string;
+    authorizationUrl: string;
+    reference: string;
+    memberName: string;
+    memberEmail: string;
+    customFieldsData: string;
+  }>();
+
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { verifyPaymentAndJoin } = useOrg();
+
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [paymentDone, setPaymentDone] = useState(false);
+  const [error, setError] = useState('');
+  const verifyCalledRef = useRef(false);
+
+  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+
+  const handleNavigationChange = async (navState: WebViewNavigation) => {
+    const url = navState.url || '';
+    // Paystack redirects to our callback URL after payment
+    const isSuccess =
+      url.includes('nascard://payment/success') ||
+      url.includes('payment/success') ||
+      url.includes('trxref=') ||
+      url.includes('reference=');
+
+    if (isSuccess && !verifyCalledRef.current) {
+      verifyCalledRef.current = true;
+      setPaymentDone(true);
+      await handleVerify();
+    }
+  };
+
+  const handleVerify = async () => {
+    if (isVerifying) return;
+    setIsVerifying(true);
+    setError('');
+    try {
+      const fields = rawFields ? JSON.parse(rawFields) : {};
+      const result = await verifyPaymentAndJoin(orgId || '', reference || '', {
+        memberName: memberName || '',
+        memberEmail: memberEmail || '',
+        customFieldsData: fields,
+      });
+
+      router.replace(`/card/${result.card.id}` as any);
+    } catch (e: any) {
+      setError(e?.message || 'Payment verification failed. Please contact support.');
+      verifyCalledRef.current = false;
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  // Web platform fallback (no WebView available)
+  if (Platform.OS === 'web') {
+    return (
+      <View style={[styles.root, { backgroundColor: colors.background }]}>
+        <View style={[styles.topBar, { paddingTop: topPad + 8, borderColor: colors.border }]}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.closeBtn}>
+            <Ionicons name="close" size={24} color={colors.foreground} />
+          </TouchableOpacity>
+          <Text style={[styles.topTitle, { color: colors.foreground }]}>Complete Payment</Text>
+          <View style={{ width: 24 }} />
+        </View>
+
+        <View style={styles.webFallbackContainer}>
+          <Ionicons name="card" size={48} color={colors.primary} />
+          <Text style={[styles.webFallbackTitle, { color: colors.foreground }]}>Paystack Checkout</Text>
+          <Text style={[styles.webFallbackSub, { color: colors.mutedForeground }]}>
+            On mobile, you'll see the full Paystack payment form here.
+            {'\n\n'}For web testing, tap "Simulate Payment" below.
+          </Text>
+
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+          <TouchableOpacity
+            style={[styles.verifyBtn, { backgroundColor: colors.primary }]}
+            onPress={handleVerify}
+            disabled={isVerifying}
+          >
+            {isVerifying ? (
+              <ActivityIndicator color={colors.primaryForeground} />
+            ) : (
+              <>
+                <Ionicons name="checkmark-circle" size={20} color={colors.primaryForeground} />
+                <Text style={[styles.verifyBtnText, { color: colors.primaryForeground }]}>
+                  Simulate Successful Payment
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      {/* Header */}
+      <View style={[styles.topBar, { paddingTop: topPad + 8, borderColor: colors.border }]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.closeBtn}>
+          <Ionicons name="close" size={24} color={colors.foreground} />
+        </TouchableOpacity>
+        <Text style={[styles.topTitle, { color: colors.foreground }]}>Complete Payment</Text>
+        <View style={{ width: 24 }} />
+      </View>
+
+      {/* Verifying overlay */}
+      {(isVerifying || paymentDone) && (
+        <View style={styles.verifyingOverlay}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.verifyingText, { color: colors.foreground }]}>
+            {isVerifying ? 'Verifying payment & issuing pass...' : 'Payment complete!'}
+          </Text>
+        </View>
+      )}
+
+      {/* Error state */}
+      {error ? (
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle" size={32} color="#EF4444" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity
+            style={[styles.verifyBtn, { backgroundColor: colors.primary }]}
+            onPress={() => {
+              verifyCalledRef.current = false;
+              handleVerify();
+            }}
+          >
+            <Text style={[styles.verifyBtnText, { color: colors.primaryForeground }]}>Retry Verification</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {/* Paystack WebView */}
+      {!paymentDone && !error && authorizationUrl ? (
+        <WebView
+          source={{ uri: authorizationUrl }}
+          onNavigationStateChange={handleNavigationChange}
+          startInLoadingState
+          renderLoading={() => (
+            <View style={styles.webviewLoading}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
+                Loading Paystack...
+              </Text>
+            </View>
+          )}
+          style={{ flex: 1 }}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+  },
+  closeBtn: { padding: 4 },
+  topTitle: { fontSize: 17, fontFamily: 'Inter_700Bold' },
+  webFallbackContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+    gap: 16,
+  },
+  webFallbackTitle: { fontSize: 20, fontFamily: 'Inter_700Bold' },
+  webFallbackSub: { fontSize: 14, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 22 },
+  verifyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 50,
+    borderRadius: 12,
+    paddingHorizontal: 24,
+    marginTop: 8,
+  },
+  verifyBtnText: { fontSize: 15, fontFamily: 'Inter_700Bold' },
+  verifyingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    zIndex: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  verifyingText: { fontSize: 16, fontFamily: 'Inter_600SemiBold' },
+  errorContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24 },
+  errorText: { fontSize: 13, color: '#EF4444', fontFamily: 'Inter_500Medium', textAlign: 'center' },
+  webviewLoading: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  loadingText: { fontSize: 14, fontFamily: 'Inter_400Regular' },
+});

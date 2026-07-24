@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import type { Card } from '@/types/card';
 
 const BACKUP_VERSION = 1;
-const FILE_EXT = 'cvault';
+const FILE_EXT = 'nascard';
 
 export interface BackupFile {
   version: number;
@@ -40,7 +40,7 @@ export async function createBackupFile(cards: Card[], password: string): Promise
   const encrypted = await encryptCards(cards, password);
   return {
     version: BACKUP_VERSION,
-    app: 'CardVault',
+    app: 'nascard',
     createdAt: new Date().toISOString(),
     cardCount: cards.length,
     data: encrypted,
@@ -50,7 +50,7 @@ export async function createBackupFile(cards: Card[], password: string): Promise
 export async function exportBackup(cards: Card[], password: string): Promise<void> {
   const backup = await createBackupFile(cards, password);
   const json = JSON.stringify(backup, null, 2);
-  const filename = `cardvault-backup-${new Date().toISOString().slice(0, 10)}.${FILE_EXT}`;
+  const filename = `nascard-backup-${new Date().toISOString().slice(0, 10)}.${FILE_EXT}`;
 
   if (Platform.OS === 'web') {
     const blob = new Blob([json], { type: 'application/json' });
@@ -72,7 +72,7 @@ export async function exportBackup(cards: Card[], password: string): Promise<voi
   if (!canShare) throw new Error('Sharing is not available on this device.');
   await Sharing.shareAsync(path, {
     mimeType: 'application/json',
-    dialogTitle: 'Save CardVault Backup',
+    dialogTitle: 'Save nascard Backup',
     UTI: 'public.json',
   });
 }
@@ -82,7 +82,7 @@ export async function importBackupFile(): Promise<BackupFile> {
     return new Promise((resolve, reject) => {
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = '.cvault,.json';
+      input.accept = '.nascard,.json';
       input.onchange = async (e) => {
         const file = (e.target as HTMLInputElement).files?.[0];
         if (!file) { reject(new Error('No file selected.')); return; }

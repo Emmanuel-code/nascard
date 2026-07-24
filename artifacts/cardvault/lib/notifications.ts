@@ -1,9 +1,18 @@
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import type { Card } from '@/types/card';
 import { getDaysUntilExpiry } from '@/types/card';
 
+/** Returns true when running inside the Expo Go client (not a development/production build) */
+function isExpoGo(): boolean {
+  return Constants.appOwnership === 'expo';
+}
+
 async function getNotifications() {
   if (Platform.OS === 'web') return null;
+  // Push notifications were removed from Expo Go in SDK 53.
+  // Skip silently so users are not shown a broken error screen.
+  if (isExpoGo()) return null;
   try {
     return await import('expo-notifications');
   } catch {
