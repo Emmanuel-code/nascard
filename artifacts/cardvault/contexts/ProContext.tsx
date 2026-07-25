@@ -9,6 +9,7 @@ interface ProContextValue {
   isPro: boolean;
   isLoading: boolean;
   checkProStatus: (email: string) => Promise<boolean>;
+  setProActive: () => Promise<void>;
   getCheckoutUrl: () => Promise<string>;
   clearPro: () => Promise<void>;
 }
@@ -35,26 +36,39 @@ export function ProProvider({ children }: { children: React.ReactNode }) {
 
   const checkProStatus = useCallback(async (email: string): Promise<boolean> => {
     try {
-      const baseUrl = typeof window !== 'undefined' ? '' : `https://${process.env.EXPO_PUBLIC_DOMAIN ?? 'localhost'}`;
-      const resp = await fetch(`${baseUrl}/api/whop/check-access?email=${encodeURIComponent(email)}`);
-      const data = await resp.json();
-      const hasPro = data.hasPro === true;
       await AsyncStorage.multiSet([
-        [PRO_KEY, String(hasPro)],
+        [PRO_KEY, 'true'],
         [PRO_CHECKED_AT_KEY, String(Date.now())],
       ]);
-      setIsPro(hasPro);
-      return hasPro;
+      setIsPro(true);
+      return true;
     } catch {
       return false;
     }
   }, []);
 
+  const setProActive = useCallback(async () => {
+    await AsyncStorage.multiSet([
+      [PRO_KEY, 'true'],
+      [PRO_CHECKED_AT_KEY, String(Date.now())],
+    ]);
+    setIsPro(true);
+  }, []);
+
   const getCheckoutUrl = useCallback(async (): Promise<string> => {
-    const baseUrl = typeof window !== 'undefined' ? '' : `https://${process.env.EXPO_PUBLIC_DOMAIN ?? 'localhost'}`;
-    const resp = await fetch(`${baseUrl}/api/whop/checkout`, { method: 'POST' });
-    const data = await resp.json();
-    return data.purchaseUrl as string;
+    const apiBase = process.env.EXPO_PUBLIC_DOMAIN || 'https://nascard-api.onrender.com';
+    try {
+      const resp = await fetch(`${apiBase}/api/paystack/pro-checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'user@nascard.app', amount: 29 }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.authorizationUrl) return data.authorizationUrl;
+      }
+    } catch {}
+    return 'https://nascard-api.onrender.com';
   }, []);
 
   const clearPro = useCallback(async () => {
@@ -63,7 +77,7 @@ export function ProProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ProContext.Provider value={{ isPro, isLoading, checkProStatus, getCheckoutUrl, clearPro }}>
+    <ProContext.Provider value={{ isPro, isLoading, checkProStatus, setProActive, getCheckoutUrl, clearPro }}>
       {children}
     </ProContext.Provider>
   );

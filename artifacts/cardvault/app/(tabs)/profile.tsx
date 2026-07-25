@@ -377,7 +377,7 @@ export default function ProfileScreen() {
             onPress={() =>
               Alert.alert(
                 'About nascard',
-                'nascard is a high-security, 3D interactive digital card wallet & partner pass platform. Replace physical plastic cards with instant, verified digital passes for gyms, schools, clubs, and workplaces.',
+                'nascard is a high-security, 3D interactive digital card wallet & partner pass platform. Replace physical plastic cards with instant, verified digital passes for gyms, schools, clubs, and workplaces.\n\n🏢 Company: Septnova\n👨‍💻 Lead Developer: Emmanuel Jimah Bakeri\n📧 Contact: septnova.contact@gmail.com',
               )
             }
             activeOpacity={0.7}
@@ -393,7 +393,7 @@ export default function ProfileScreen() {
             onPress={() =>
               Alert.alert(
                 'Privacy Policy',
-                '1. Data Privacy: Your personal card photos and details are encrypted and stored locally on your device.\n\n2. Camera Access: Camera permissions are strictly used for scanning barcodes and capturing card photos.\n\n3. Zero Selling: We never sell or share your personal card data with third parties.',
+                '1. Data Privacy: Your personal card photos and details are encrypted and stored locally on your device.\n\n2. Camera Access: Camera permissions are strictly used for scanning barcodes and capturing card photos.\n\n3. Zero Selling: Septnova never sells or shares your personal card data with third parties.',
               )
             }
             activeOpacity={0.7}
@@ -425,7 +425,7 @@ export default function ProfileScreen() {
             onPress={() =>
               Alert.alert(
                 'Contact Support',
-                'Need help or have feedback?\n\n📧 Email: support@nascard.app\n🌐 Website: https://nascard.app\n⚡ Live Chat: Available in Partner Hub',
+                'Need help or have feedback?\n\n🏢 Company: Septnova\n👨‍💻 Lead Developer: Emmanuel Jimah Bakeri\n📧 Email: septnova.contact@gmail.com\n🌐 Server: https://nascard-api.onrender.com',
               )
             }
             activeOpacity={0.7}
@@ -437,10 +437,10 @@ export default function ProfileScreen() {
 
           {/* Version Info */}
           <View style={[styles.versionRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Ionicons name="information-circle-outline" size={20} color={colors.mutedForeground} />
+            <Ionicons name="code-slash-outline" size={20} color={colors.primary} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.rowText, { color: colors.foreground }]}>Version</Text>
-              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>Release Candidate v1.0.0 (Expo SDK 54)</Text>
+              <Text style={[styles.rowText, { color: colors.foreground }]}>Septnova Release v1.0.0</Text>
+              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>Developed by Emmanuel Jimah Bakeri</Text>
             </View>
             <Text style={[styles.versionText, { color: colors.primary, fontFamily: 'Inter_700Bold' }]}>v1.0.0</Text>
           </View>

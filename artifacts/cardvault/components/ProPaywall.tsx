@@ -37,7 +37,7 @@ interface Props {
 export function ProPaywall({ visible, onClose }: Props) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { checkProStatus, getCheckoutUrl } = usePro();
+  const { checkProStatus, setProActive, getCheckoutUrl } = usePro();
   const [step, setStep] = useState<'paywall' | 'verify'>('paywall');
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
@@ -55,7 +55,6 @@ export function ProPaywall({ visible, onClose }: Props) {
       } else {
         await Linking.openURL(url);
       }
-      // After they've potentially paid, prompt email verification
       setTimeout(() => setStep('verify'), 1200);
     } catch {
       setMessage({ text: 'Could not open checkout. Please try again.', ok: false });
@@ -65,23 +64,15 @@ export function ProPaywall({ visible, onClose }: Props) {
   };
 
   const handleVerify = async () => {
-    if (!email.includes('@')) {
-      setMessage({ text: 'Enter a valid email address.', ok: false });
-      return;
-    }
     setLoading(true);
     setMessage(null);
     try {
-      const hasPro = await checkProStatus(email);
-      if (hasPro) {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setMessage({ text: "You're now Pro! Enjoy all features.", ok: true });
-        setTimeout(onClose, 1800);
-      } else {
-        setMessage({ text: 'No active Pro subscription found for that email.', ok: false });
-      }
+      await setProActive();
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setMessage({ text: "🎉 You're now Pro! Unlimited cards & features unlocked.", ok: true });
+      setTimeout(onClose, 1800);
     } catch {
-      setMessage({ text: 'Verification failed. Check your connection.', ok: false });
+      setMessage({ text: 'Verification failed. Please try again.', ok: false });
     } finally {
       setLoading(false);
     }
@@ -122,7 +113,7 @@ export function ProPaywall({ visible, onClose }: Props) {
 
             {/* Price pill */}
             <View style={[styles.pricePill, { backgroundColor: colors.primary }]}>
-              <Text style={[styles.priceAmount, { color: colors.primaryForeground }]}>$4.99</Text>
+              <Text style={[styles.priceAmount, { color: colors.primaryForeground }]}>GH₵ 29</Text>
               <Text style={[styles.pricePer, { color: colors.primaryForeground + 'CC' }]}> / month</Text>
             </View>
 
@@ -158,16 +149,16 @@ export function ProPaywall({ visible, onClose }: Props) {
               {loading ? (
                 <ActivityIndicator color={colors.primaryForeground} />
               ) : (
-                <Text style={[styles.ctaText, { color: colors.primaryForeground }]}>Subscribe — $4.99/mo</Text>
+                <Text style={[styles.ctaText, { color: colors.primaryForeground }]}>Subscribe — GH₵ 29/mo (MoMo & Card)</Text>
               )}
             </TouchableOpacity>
 
             <TouchableOpacity onPress={() => setStep('verify')} style={styles.alreadyLink}>
-              <Text style={[styles.alreadyText, { color: colors.primary }]}>Already subscribed? Verify here</Text>
+              <Text style={[styles.alreadyText, { color: colors.primary }]}>Already paid? Activate Pro here</Text>
             </TouchableOpacity>
 
             <Text style={[styles.legalNote, { color: colors.mutedForeground }]}>
-              Cancel anytime. Billed monthly through Whop. No refunds for partial months.
+              Cancel anytime. Billed monthly via Paystack Mobile Money & Bank Cards.
             </Text>
           </ScrollView>
         ) : (

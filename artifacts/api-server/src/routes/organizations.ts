@@ -431,8 +431,38 @@ router.get("/join/:id", (req: Request, res: Response) => {
   res.send(html);
 });
 
-// ─── Paystack: Initialize payment for joining ─────────────────────────────────
+// ─── Paystack: Initialize Dynamic Pro Subscription Payment ────────────────────────
+router.post("/paystack/pro-checkout", async (req: Request, res: Response) => {
+  try {
+    const { email = "user@nascard.app", amount = 29 } = req.body;
+    const amountKobo = Math.round(Number(amount) * 100);
 
+    const paystackRes = await paystackRequest("POST", "/transaction/initialize", {
+      email,
+      amount: amountKobo,
+      currency: "GHS",
+      reference: `nascard_pro_${Date.now()}`,
+      callback_url: `nascard://payment/pro-success`,
+      metadata: {
+        type: "pro_subscription",
+      },
+    });
+
+    if (paystackRes.ok && paystackRes.data?.data?.authorization_url) {
+      res.json({
+        authorizationUrl: paystackRes.data.data.authorization_url,
+        accessCode: paystackRes.data.data.access_code,
+        reference: paystackRes.data.data.reference,
+      });
+    } else {
+      res.status(500).json({ error: paystackRes.data?.message || "Failed to initialize Paystack checkout" });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to initialize Paystack checkout" });
+  }
+});
+
+// ─── Paystack: Initialize payment for joining ─────────────────────────────────
 router.post("/organizations/:id/payment/initialize", async (req: Request, res: Response) => {
   try {
     const orgId = String(req.params["id"] || "");

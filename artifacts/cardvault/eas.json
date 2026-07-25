@@ -18,6 +18,9 @@
       "distribution": "store",
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "NPM_CONFIG_FROZEN_LOCKFILE": "false"
       }
     }
   },
