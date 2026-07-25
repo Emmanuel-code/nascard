@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "b637b62e-54d8-4f3f-afb4-1b006f29dab0"
+      }
+    },
+    "android": {
+      "package": "com.nascard.app"
+    }
+  }
+}
