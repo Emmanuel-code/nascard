@@ -185,13 +185,42 @@ export default function OrgManagerDashboardScreen() {
     if (!org) return;
     setIsUpgrading(true);
     try {
+      setShowUpgradeModal(false);
+      const amountGhs = targetTier === 'pro' ? 199 : 1499;
+      const apiBase = process.env.EXPO_PUBLIC_DOMAIN || 'https://nascard-api.onrender.com';
+      let authUrl = '';
+
+      try {
+        const resp = await fetch(`${apiBase}/api/paystack/pro-checkout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: org.managerEmail || 'admin@nascard.app',
+            amount: amountGhs,
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          authUrl = data.authorizationUrl || '';
+        }
+      } catch (e) {
+        console.warn('Paystack init fallback:', e);
+      }
+
+      // Navigate to Paystack WebView payment screen
+      router.push({
+        pathname: '/org/payment',
+        params: {
+          authorizationUrl: authUrl,
+          orgId: 'pro_pass',
+          reference: `nascard_${targetTier}_${Date.now()}`,
+          memberName: `${org.name} Tier Upgrade (${targetTier.toUpperCase()})`,
+          memberEmail: org.managerEmail || 'admin@nascard.app',
+        },
+      } as any);
+
       const newLimit = targetTier === 'pro' ? 500 : 10000;
       setOrg({ ...org, tier: targetTier, memberLimit: newLimit });
-      setShowUpgradeModal(false);
-      Alert.alert(
-        'Upgrade Successful! 🎉',
-        `Your organization has been upgraded to ${targetTier.toUpperCase()} TIER (${newLimit.toLocaleString()} member limit).`,
-      );
     } catch (e) {
       Alert.alert('Error', 'Upgrade failed. Please try again.');
     } finally {
@@ -290,14 +319,21 @@ export default function OrgManagerDashboardScreen() {
                   {members.length} of {org.memberLimit || 25} active member slots used
                 </Text>
               </View>
-              <TouchableOpacity
-                style={[styles.upgradeBtn, { backgroundColor: colors.primary }]}
-                onPress={() => setShowUpgradeModal(true)}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="arrow-up-circle-outline" size={16} color={colors.primaryForeground} />
-                <Text style={[styles.upgradeBtnText, { color: colors.primaryForeground }]}>Upgrade</Text>
-              </TouchableOpacity>
+              {(org.tier || 'starter') === 'enterprise' ? (
+                <View style={[styles.upgradeBtn, { backgroundColor: '#8B5CF622', borderColor: '#8B5CF6', borderWidth: 1 }]}>
+                  <Ionicons name="shield-checkmark" size={16} color="#8B5CF6" />
+                  <Text style={[styles.upgradeBtnText, { color: '#8B5CF6' }]}>Enterprise Active</Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.upgradeBtn, { backgroundColor: colors.primary }]}
+                  onPress={() => setShowUpgradeModal(true)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="arrow-up-circle-outline" size={16} color={colors.primaryForeground} />
+                  <Text style={[styles.upgradeBtnText, { color: colors.primaryForeground }]}>Upgrade Tier</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* Member usage progress bar */}
@@ -702,12 +738,21 @@ export default function OrgManagerDashboardScreen() {
               <View style={{ gap: 10 }}>
                 {/* Pro Tier Option */}
                 <TouchableOpacity
-                  style={[styles.tierOptionBox, { backgroundColor: colors.background, borderColor: colors.primary }]}
+                  style={[
+                    styles.tierOptionBox,
+                    {
+                      backgroundColor: (org.tier || 'starter') === 'pro' ? colors.primary + '18' : colors.background,
+                      borderColor: colors.primary,
+                      borderWidth: (org.tier || 'starter') === 'pro' ? 2 : 1,
+                    },
+                  ]}
                   onPress={() => handleUpgrade('pro')}
-                  disabled={isUpgrading}
+                  disabled={isUpgrading || (org.tier || 'starter') === 'pro'}
                 >
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={[styles.tierOptionTitle, { color: colors.foreground }]}>Pro Organization Tier</Text>
+                    <Text style={[styles.tierOptionTitle, { color: colors.foreground }]}>
+                      Pro Organization Tier {(org.tier || 'starter') === 'pro' ? '✓ (Current Plan)' : ''}
+                    </Text>
                     <Text style={[styles.tierOptionPrice, { color: colors.primary }]}>GH₵ 199/mo · GH₵ 1,800/yr</Text>
                   </View>
                   <Text style={[styles.tierOptionSub, { color: colors.mutedForeground }]}>
@@ -717,12 +762,21 @@ export default function OrgManagerDashboardScreen() {
 
                 {/* Enterprise Tier Option */}
                 <TouchableOpacity
-                  style={[styles.tierOptionBox, { backgroundColor: colors.background, borderColor: '#8B5CF6' }]}
+                  style={[
+                    styles.tierOptionBox,
+                    {
+                      backgroundColor: (org.tier || 'starter') === 'enterprise' ? '#8B5CF618' : colors.background,
+                      borderColor: '#8B5CF6',
+                      borderWidth: (org.tier || 'starter') === 'enterprise' ? 2 : 1,
+                    },
+                  ]}
                   onPress={() => handleUpgrade('enterprise')}
-                  disabled={isUpgrading}
+                  disabled={isUpgrading || (org.tier || 'starter') === 'enterprise'}
                 >
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={[styles.tierOptionTitle, { color: colors.foreground }]}>Enterprise Tier (Schools)</Text>
+                    <Text style={[styles.tierOptionTitle, { color: colors.foreground }]}>
+                      Enterprise Tier {(org.tier || 'starter') === 'enterprise' ? '✓ (Current Plan)' : ''}
+                    </Text>
                     <Text style={[styles.tierOptionPrice, { color: '#8B5CF6' }]}>GH₵ 1,499/mo · GH₵ 12,000/yr</Text>
                   </View>
                   <Text style={[styles.tierOptionSub, { color: colors.mutedForeground }]}>

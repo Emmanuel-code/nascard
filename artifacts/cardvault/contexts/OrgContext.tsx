@@ -4,13 +4,29 @@ import { Platform } from 'react-native';
 import type { Card, Organization, OrgMember } from '@/types/card';
 import { useCards } from './CardContext';
 
+export interface CustomFieldSchema {
+  key: string;
+  label: string;
+  type: 'text' | 'number' | 'email' | 'phone' | 'date';
+  required: boolean;
+}
+
+export const THEME_PRESETS = [
+  { name: 'Ivy League Gold', primary: '#1E3A8A', secondary: '#1E293B', accent: '#F59E0B' },
+  { name: 'Cyber Titanium', primary: '#0F172A', secondary: '#1E293B', accent: '#06B6D4' },
+  { name: 'Corporate Onyx', primary: '#111827', secondary: '#1F2937', accent: '#8B5CF6' },
+  { name: 'VIP Velvet Gold', primary: '#18181B', secondary: '#27272A', accent: '#EAB308' },
+  { name: 'Emerald Shield', primary: '#064E3B', secondary: '#047857', accent: '#10B981' },
+];
+
 const MANAGED_ORGS_KEY = '@cardo:managed_orgs';
 
 // Determine API base URL dynamically
-const API_BASE_URL =
-  Platform.OS === 'android'
-    ? 'http://10.0.2.2:8080/api'
-    : 'http://localhost:8080/api';
+const API_BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
+  ? `${process.env.EXPO_PUBLIC_DOMAIN}/api`
+  : Platform.OS === 'android'
+  ? 'http://10.0.2.2:8080/api'
+  : 'http://localhost:8080/api';
 
 interface OrgContextValue {
   managedOrgs: Organization[];

@@ -44,9 +44,7 @@ function RootLayoutNav() {
         options={{ presentation: 'fullScreenModal' }}
       />
       <Stack.Screen name="share/[token]" />
-      <Stack.Screen name="backup" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-      <Stack.Screen name="edit-card" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-      <Stack.Screen name="org" />
+      <Stack.Screen name="org/index" />
       <Stack.Screen name="org/create" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
       <Stack.Screen name="org/join/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
       <Stack.Screen name="org/manage/[id]" />

@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -35,6 +36,7 @@ interface Props {
 }
 
 export function ProPaywall({ visible, onClose }: Props) {
+  const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { checkProStatus, setProActive, getCheckoutUrl } = usePro();
@@ -50,14 +52,19 @@ export function ProPaywall({ visible, onClose }: Props) {
     try {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       const url = await getCheckoutUrl();
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        window.open(url, '_blank');
-      } else {
-        await Linking.openURL(url);
-      }
-      setTimeout(() => setStep('verify'), 1200);
+      onClose();
+      router.push({
+        pathname: '/org/payment',
+        params: {
+          authorizationUrl: url,
+          orgId: 'pro_pass',
+          reference: `nascard_pro_${Date.now()}`,
+          memberName: 'Pro User',
+          memberEmail: 'pro@nascard.app',
+        },
+      } as any);
     } catch {
-      setMessage({ text: 'Could not open checkout. Please try again.', ok: false });
+      setMessage({ text: 'Could not initialize Paystack checkout. Please try again.', ok: false });
     } finally {
       setLoading(false);
     }

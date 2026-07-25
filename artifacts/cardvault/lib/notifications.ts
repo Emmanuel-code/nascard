@@ -75,7 +75,7 @@ export async function cancelAllNotifications(): Promise<void> {
 }
 
 export function configureNotificationHandler(): void {
-  if (Platform.OS === 'web') return;
+  if (Platform.OS === 'web' || isExpoGo()) return;
   import('expo-notifications').then((Notifications) => {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({

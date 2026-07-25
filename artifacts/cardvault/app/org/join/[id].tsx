@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCards } from '@/contexts/CardContext';
 import { useOrg } from '@/contexts/OrgContext';
 import { useColors } from '@/hooks/useColors';
 import type { Organization } from '@/types/card';
@@ -24,6 +25,7 @@ export default function MemberJoinScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { cards } = useCards();
   const { getOrgDetails, joinOrg, initializePayment } = useOrg();
 
   const [org, setOrg] = useState<Organization | null>(null);
@@ -62,8 +64,9 @@ export default function MemberJoinScreen() {
           setOrg(res);
           // initialize custom fields defaults
           const initData: Record<string, string> = {};
-          res.customFields.forEach((field) => {
-            initData[field.id] = '';
+          res.customFields.forEach((field: any) => {
+            const fKey = field.key || field.id || field.label;
+            initData[fKey] = '';
           });
           setCustomFieldsData(initData);
         }
@@ -72,15 +75,29 @@ export default function MemberJoinScreen() {
   }, [id, getOrgDetails]);
 
   const handleJoinSubmit = async () => {
+    if (isSubmitting) return;
+
     if (!memberName.trim()) {
       Alert.alert('Required', 'Please enter your full name as it should appear on the card.');
       return;
     }
 
     if (org) {
+      // Prevent duplicate pass generation if member already has this org pass
+      const existingCard = cards.find((c) => c.orgId === org.id);
+      if (existingCard) {
+        Alert.alert(
+          'Already Claimed! 💳',
+          `You already have an active pass for ${org.name} in your nascard Wallet.`,
+          [{ text: 'View Card', onPress: () => router.replace(`/card/${existingCard.id}` as any) }]
+        );
+        return;
+      }
+
       // Validate required custom fields
       for (const field of org.customFields) {
-        if (field.required && !customFieldsData[field.id]?.trim()) {
+        const fKey = field.key || field.id || field.label;
+        if (field.required && !customFieldsData[fKey]?.trim()) {
           Alert.alert('Required Field', `Please enter your ${field.label}.`);
           return;
         }
@@ -258,35 +275,27 @@ export default function MemberJoinScreen() {
 
           {/* Dynamic Required Fields */}
           {org?.customFields && org.customFields.length > 0 ? (
-            org.customFields.map((field) => (
-              <View key={field.id} style={styles.fieldGroup}>
-                <Text style={[styles.label, { color: colors.foreground }]}>
-                  {field.label} {field.required ? '*' : '(Optional)'}
-                </Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: colors.secondary, color: colors.foreground, borderColor: colors.border }]}
-                  placeholder={field.placeholder || `Enter ${field.label}`}
-                  placeholderTextColor={colors.mutedForeground}
-                  value={customFieldsData[field.id] || ''}
-                  onChangeText={(val) =>
-                    setCustomFieldsData({ ...customFieldsData, [field.id]: val })
-                  }
-                  keyboardType={field.type === 'number' ? 'numeric' : field.type === 'phone' ? 'phone-pad' : 'default'}
-                />
-              </View>
-            ))
-          ) : (
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.label, { color: colors.foreground }]}>Member / Student ID #</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colors.secondary, color: colors.foreground, borderColor: colors.border }]}
-                placeholder="e.g. APX-9901"
-                placeholderTextColor={colors.mutedForeground}
-                value={customFieldsData['member_id'] || ''}
-                onChangeText={(val) => setCustomFieldsData({ ...customFieldsData, member_id: val })}
-              />
-            </View>
-          )}
+            org.customFields.map((field: any) => {
+              const fKey = field.key || field.id || field.label;
+              return (
+                <View key={fKey} style={styles.fieldGroup}>
+                  <Text style={[styles.label, { color: colors.foreground }]}>
+                    {field.label} {field.required ? '*' : '(Optional)'}
+                  </Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: colors.secondary, color: colors.foreground, borderColor: colors.border }]}
+                    placeholder={field.placeholder || `Enter ${field.label}`}
+                    placeholderTextColor={colors.mutedForeground}
+                    value={customFieldsData[fKey] || ''}
+                    onChangeText={(val) =>
+                      setCustomFieldsData({ ...customFieldsData, [fKey]: val })
+                    }
+                    keyboardType={field.type === 'number' ? 'numeric' : field.type === 'phone' ? 'phone-pad' : 'default'}
+                  />
+                </View>
+              );
+            })
+          ) : null}
 
           <TouchableOpacity
             style={[styles.claimBtn, { backgroundColor: primaryColor }]}

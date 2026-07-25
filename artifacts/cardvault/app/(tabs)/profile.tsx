@@ -348,7 +348,7 @@ export default function ProfileScreen() {
             onPress={async () => {
               try {
                 await Share.share({
-                  message: '📱 Ditch your plastic cards! Download nascard to store your cards in a 3D Apple Wallet & claim digital passes for your school, gym, or office.\n\nDownload now: https://nascard.app',
+                  message: '📱 Ditch your plastic cards! Download nascard to store your cards in a 3D Apple Wallet & claim digital passes for your school, gym, or office.\n\nDownload now: https://nascard-api.onrender.com/',
                   title: 'nascard - 3D Digital Card Wallet',
                 });
               } catch (e) {}

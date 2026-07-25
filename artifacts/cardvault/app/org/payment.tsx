@@ -12,6 +12,7 @@ import {
 import { WebView, type WebViewNavigation } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOrg } from '@/contexts/OrgContext';
+import { usePro } from '@/contexts/ProContext';
 import { useColors } from '@/hooks/useColors';
 
 export default function PaymentScreen() {
@@ -35,6 +36,7 @@ export default function PaymentScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { verifyPaymentAndJoin } = useOrg();
+  const { setProActive } = usePro();
 
   const [isVerifying, setIsVerifying] = useState(false);
   const [paymentDone, setPaymentDone] = useState(false);
@@ -49,6 +51,7 @@ export default function PaymentScreen() {
     const isSuccess =
       url.includes('nascard://payment/success') ||
       url.includes('payment/success') ||
+      url.includes('pro-success') ||
       url.includes('trxref=') ||
       url.includes('reference=');
 
@@ -64,6 +67,12 @@ export default function PaymentScreen() {
     setIsVerifying(true);
     setError('');
     try {
+      if (orgId === 'pro_pass') {
+        await setProActive();
+        router.replace('/(tabs)/profile' as any);
+        return;
+      }
+
       const fields = rawFields ? JSON.parse(rawFields) : {};
       const result = await verifyPaymentAndJoin(orgId || '', reference || '', {
         memberName: memberName || '',
@@ -171,12 +180,30 @@ export default function PaymentScreen() {
             <View style={styles.webviewLoading}>
               <ActivityIndicator size="large" color={colors.primary} />
               <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
-                Loading Paystack...
+                Loading Paystack Mobile Money & Card Gateway...
               </Text>
             </View>
           )}
           style={{ flex: 1 }}
         />
+      ) : !paymentDone && !error ? (
+        <View style={styles.webFallbackContainer}>
+          <Ionicons name="card" size={48} color={colors.primary} />
+          <Text style={[styles.webFallbackTitle, { color: colors.foreground }]}>Paystack Payment Gateway</Text>
+          <Text style={[styles.webFallbackSub, { color: colors.mutedForeground }]}>
+            Initializing Paystack Mobile Money (MTN / Telecel / AT) & Bank Card checkout...
+          </Text>
+          <TouchableOpacity
+            style={[styles.verifyBtn, { backgroundColor: colors.primary }]}
+            onPress={handleVerify}
+            disabled={isVerifying}
+          >
+            <Ionicons name="checkmark-circle" size={20} color={colors.primaryForeground} />
+            <Text style={[styles.verifyBtnText, { color: colors.primaryForeground }]}>
+              {isVerifying ? 'Verifying Payment...' : 'Confirm & Complete Payment'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       ) : null}
     </View>
   );

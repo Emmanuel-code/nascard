@@ -448,14 +448,14 @@ router.post("/paystack/pro-checkout", async (req: Request, res: Response) => {
       },
     });
 
-    if (paystackRes.ok && paystackRes.data?.data?.authorization_url) {
+    if (paystackRes?.status && paystackRes.data?.authorization_url) {
       res.json({
-        authorizationUrl: paystackRes.data.data.authorization_url,
-        accessCode: paystackRes.data.data.access_code,
-        reference: paystackRes.data.data.reference,
+        authorizationUrl: paystackRes.data.authorization_url,
+        accessCode: paystackRes.data.access_code,
+        reference: paystackRes.data.reference,
       });
     } else {
-      res.status(500).json({ error: paystackRes.data?.message || "Failed to initialize Paystack checkout" });
+      res.status(500).json({ error: paystackRes?.message || "Failed to initialize Paystack checkout" });
     }
   } catch (err: any) {
     res.status(500).json({ error: "Failed to initialize Paystack checkout" });
@@ -630,6 +630,23 @@ router.post("/organizations/:id/join", (req: Request, res: Response) => {
     const { memberName, memberEmail, customFieldsData = {}, photoUri } = req.body;
     if (!memberName || typeof memberName !== "string") {
       res.status(400).json({ error: "Member name is required." });
+      return;
+    }
+
+    const existingMembers = membersStore.get(org.id) || [];
+    const duplicate = existingMembers.find(
+      (m) =>
+        (memberEmail && m.memberEmail?.toLowerCase() === String(memberEmail).toLowerCase()) ||
+        (m.memberName.toLowerCase() === String(memberName).toLowerCase() && m.status === "active")
+    );
+
+    if (duplicate) {
+      res.status(200).json({
+        member: duplicate,
+        issuedCard: { id: duplicate.cardId, ...issueCard(org, duplicate) },
+        organization: org,
+        alreadyMember: true,
+      });
       return;
     }
 
