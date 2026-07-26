@@ -773,56 +773,66 @@ export default function OrgManagerDashboardScreen() {
 
               <View style={{ gap: 10 }}>
                 {/* Pro Tier Option */}
-                <TouchableOpacity
-                  style={[
-                    styles.tierOptionBox,
-                    {
-                      backgroundColor: (org.tier || 'starter') === 'pro' ? colors.primary + '18' : colors.background,
-                      borderColor: colors.primary,
-                      borderWidth: (org.tier || 'starter') === 'pro' ? 2 : 1,
-                    },
-                  ]}
-                  onPress={() => handleUpgrade('pro')}
-                  disabled={isUpgrading || (org.tier || 'starter') === 'pro'}
-                >
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={[styles.tierOptionTitle, { color: colors.foreground }]}>
-                      Pro Tier {(org.tier || 'starter') === 'pro' ? '✓ (Current Plan)' : ''}
-                    </Text>
-                    <Text style={[styles.tierOptionPrice, { color: colors.primary }]}>
-                      {upgradeBillingCycle === 'monthly' ? 'GH₵ 199 / mo' : 'GH₵ 1,800 / yr'}
-                    </Text>
-                  </View>
-                  <Text style={[styles.tierOptionSub, { color: colors.mutedForeground }]}>
-                    Up to 500 active members + fee collection + custom card themes + door scanner
-                  </Text>
-                </TouchableOpacity>
+                {(() => {
+                  const isCurrentExact = (org.tier || 'starter') === 'pro' && (org.billingCycle || 'monthly') === upgradeBillingCycle;
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        styles.tierOptionBox,
+                        {
+                          backgroundColor: isCurrentExact ? colors.primary + '18' : colors.background,
+                          borderColor: colors.primary,
+                          borderWidth: isCurrentExact ? 2 : 1,
+                        },
+                      ]}
+                      onPress={() => handleUpgrade('pro')}
+                      disabled={isUpgrading || isCurrentExact}
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={[styles.tierOptionTitle, { color: colors.foreground }]}>
+                          Pro Tier {isCurrentExact ? '✓ (Active)' : org.tier === 'pro' ? '🔄 (Switch Cycle)' : ''}
+                        </Text>
+                        <Text style={[styles.tierOptionPrice, { color: colors.primary }]}>
+                          {upgradeBillingCycle === 'monthly' ? 'GH₵ 199 / mo' : 'GH₵ 1,800 / yr'}
+                        </Text>
+                      </View>
+                      <Text style={[styles.tierOptionSub, { color: colors.mutedForeground }]}>
+                        Up to 500 active members + fee collection + custom card themes + door scanner
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })()}
 
                 {/* Enterprise Tier Option */}
-                <TouchableOpacity
-                  style={[
-                    styles.tierOptionBox,
-                    {
-                      backgroundColor: (org.tier || 'starter') === 'enterprise' ? '#8B5CF618' : colors.background,
-                      borderColor: '#8B5CF6',
-                      borderWidth: (org.tier || 'starter') === 'enterprise' ? 2 : 1,
-                    },
-                  ]}
-                  onPress={() => handleUpgrade('enterprise')}
-                  disabled={isUpgrading || (org.tier || 'starter') === 'enterprise'}
-                >
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={[styles.tierOptionTitle, { color: colors.foreground }]}>
-                      Enterprise Tier {(org.tier || 'starter') === 'enterprise' ? '✓ (Current Plan)' : ''}
-                    </Text>
-                    <Text style={[styles.tierOptionPrice, { color: '#8B5CF6' }]}>
-                      {upgradeBillingCycle === 'monthly' ? 'GH₵ 1,499 / mo' : 'GH₵ 12,000 / yr'}
-                    </Text>
-                  </View>
-                  <Text style={[styles.tierOptionSub, { color: colors.mutedForeground }]}>
-                    Up to 10,000 active members + multi-admin accounts + priority support (Best for Universities & High Schools)
-                  </Text>
-                </TouchableOpacity>
+                {(() => {
+                  const isCurrentExact = (org.tier || 'starter') === 'enterprise' && (org.billingCycle || 'monthly') === upgradeBillingCycle;
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        styles.tierOptionBox,
+                        {
+                          backgroundColor: isCurrentExact ? '#8B5CF618' : colors.background,
+                          borderColor: '#8B5CF6',
+                          borderWidth: isCurrentExact ? 2 : 1,
+                        },
+                      ]}
+                      onPress={() => handleUpgrade('enterprise')}
+                      disabled={isUpgrading || isCurrentExact}
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={[styles.tierOptionTitle, { color: colors.foreground }]}>
+                          Enterprise Tier {isCurrentExact ? '✓ (Active)' : org.tier === 'enterprise' ? '🔄 (Switch Cycle)' : ''}
+                        </Text>
+                        <Text style={[styles.tierOptionPrice, { color: '#8B5CF6' }]}>
+                          {upgradeBillingCycle === 'monthly' ? 'GH₵ 1,499 / mo' : 'GH₵ 12,000 / yr'}
+                        </Text>
+                      </View>
+                      <Text style={[styles.tierOptionSub, { color: colors.mutedForeground }]}>
+                        Up to 10,000 active members + multi-admin accounts + priority support (Best for Universities & High Schools)
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })()}
               </View>
             </View>
           </View>
