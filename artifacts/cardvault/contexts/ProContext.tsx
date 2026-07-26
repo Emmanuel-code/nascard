@@ -26,8 +26,7 @@ export function ProProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(PRO_KEY),
         AsyncStorage.getItem(PRO_CHECKED_AT_KEY),
       ]);
-      const age = Date.now() - Number(checkedAt ?? 0);
-      if (status === 'true' && age < CACHE_TTL_MS) {
+      if (status === 'true') {
         setIsPro(true);
       }
       setIsLoading(false);

@@ -139,27 +139,36 @@ export default function CreateOrgScreen() {
           ? (billingCycle === 'monthly' ? 199 : 1800)
           : (billingCycle === 'monthly' ? 1499 : 12000);
 
-        Alert.alert(
-          '💳 Checkout Required',
-          `Proceed to Paystack Mobile Money / Card checkout to activate your ${orgTier.toUpperCase()} ${billingCycle.toUpperCase()} Plan (GH₵ ${tierPriceGhs}).`,
-          [
-            {
-              text: 'Complete Payment',
-              onPress: () => {
-                router.replace({
-                  pathname: '/org/payment' as any,
-                  params: {
-                    authorizationUrl: '',
-                    orgId: created.id,
-                    reference: `nascard_${orgTier}_${created.id}_${Date.now()}`,
-                    memberName: `${created.name} (${orgTier.toUpperCase()} Plan)`,
-                    memberEmail: adminEmail.trim(),
-                  },
-                });
-              },
-            },
-          ]
-        );
+        const apiBase = process.env.EXPO_PUBLIC_DOMAIN || 'https://nascard-api.onrender.com';
+        let authUrl = '';
+
+        try {
+          const resp = await fetch(`${apiBase}/api/paystack/pro-checkout`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: adminEmail.trim() || 'admin@nascard.app',
+              amount: tierPriceGhs,
+            }),
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            authUrl = data.authorizationUrl || '';
+          }
+        } catch (e) {
+          console.warn('Paystack launch init error:', e);
+        }
+
+        router.replace({
+          pathname: '/org/payment' as any,
+          params: {
+            authorizationUrl: authUrl,
+            orgId: `org_plan_${created.id}`,
+            reference: `nascard_${orgTier}_${created.id}_${Date.now()}`,
+            memberName: `${created.name} (${orgTier.toUpperCase()} Plan)`,
+            memberEmail: adminEmail.trim(),
+          },
+        });
         return;
       }
 
@@ -657,7 +666,7 @@ export default function CreateOrgScreen() {
               </View>
             </View>
 
-            {/* Member Fee Amount */}
+            {/* Member Fee Amount & Interval */}
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, { color: colors.foreground }]}>Member Pass Joining Fee (GH₵ — enter 0 for Free Pass)</Text>
               <TextInput
@@ -678,6 +687,37 @@ export default function CreateOrgScreen() {
                 }}
                 keyboardType="numeric"
               />
+
+              {Number(membershipFee) > 0 && (
+                <View style={{ marginTop: 10 }}>
+                  <Text style={[styles.label, { color: colors.foreground, marginBottom: 6 }]}>Member Fee Billing Cycle</Text>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {[
+                      { id: 'one_time', label: '⚡ One-Time Fee' },
+                      { id: 'monthly', label: '📅 Monthly Fee' },
+                      { id: 'yearly', label: '🗓️ Yearly Fee' },
+                    ].map((interval) => (
+                      <TouchableOpacity
+                        key={interval.id}
+                        style={{
+                          flex: 1,
+                          backgroundColor: feeInterval === interval.id ? colors.primary + '18' : colors.card,
+                          borderColor: feeInterval === interval.id ? colors.primary : colors.border,
+                          borderWidth: feeInterval === interval.id ? 2 : 1,
+                          paddingVertical: 10,
+                          borderRadius: 10,
+                          alignItems: 'center',
+                        }}
+                        onPress={() => setFeeInterval(interval.id as any)}
+                      >
+                        <Text style={{ fontSize: 11, fontFamily: 'Inter_700Bold', color: feeInterval === interval.id ? colors.primary : colors.foreground }}>
+                          {interval.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
             </View>
           </View>
         )}

@@ -48,10 +48,17 @@ export default function PaymentScreen() {
   const handleNavigationChange = async (navState: WebViewNavigation) => {
     const url = navState.url || '';
     console.log('💳 [PAYSTACK WEBVIEW NAV]: Navigated to URL:', url);
+
     const isSuccess =
-      url.includes('nascard://payment/success') ||
+      url.includes('nascard://') ||
       url.includes('payment/success') ||
       url.includes('pro-success') ||
+      url.includes('checkout.paystack.com/success') ||
+      url.includes('paystack.co/close') ||
+      url.includes('paystack.com/close') ||
+      url.includes('status=success') ||
+      url.includes('status=successful') ||
+      url.includes('success=true') ||
       url.includes('trxref=') ||
       url.includes('reference=');
 
@@ -144,8 +151,20 @@ export default function PaymentScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.closeBtn}>
           <Ionicons name="close" size={24} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={[styles.topTitle, { color: colors.foreground }]}>Complete Payment</Text>
-        <View style={{ width: 24 }} />
+        <Text style={[styles.topTitle, { color: colors.foreground }]}>Paystack Checkout</Text>
+        <TouchableOpacity
+          onPress={handleVerify}
+          style={{
+            backgroundColor: colors.primary + '18',
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: colors.primary + '44',
+          }}
+        >
+          <Text style={{ fontSize: 12, fontFamily: 'Inter_700Bold', color: colors.primary }}>Done ✓</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Verifying overlay */}
