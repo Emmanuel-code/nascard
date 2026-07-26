@@ -83,6 +83,47 @@ export default function PaymentScreen() {
         return;
       }
 
+      if (orgId.startsWith('org_plan_')) {
+        const cleanOrgId = orgId.replace('org_plan_', '');
+        const targetTier = reference?.includes('enterprise') ? 'enterprise' : reference?.includes('pro') ? 'pro' : '';
+        console.log('💳 [PAYSTACK VERIFY LOG]: Org Plan Activated via Paystack Payment! Org ID:', cleanOrgId, 'Target Tier:', targetTier);
+        
+        const apiBase = process.env.EXPO_PUBLIC_DOMAIN || 'https://nascard-api.onrender.com';
+
+        // 1. Upgrade server tier
+        if (targetTier) {
+          try {
+            await fetch(`${apiBase}/api/organizations/${cleanOrgId}/upgrade`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ tier: targetTier }),
+            });
+          } catch {}
+        }
+
+        // 2. Fetch fresh org details & register/update in managedOrgs
+        const rawOrgs = await AsyncStorage.getItem('@nascard:managed_orgs');
+        let list = rawOrgs ? JSON.parse(rawOrgs) : [];
+        try {
+          const resp = await fetch(`${apiBase}/api/organizations/${cleanOrgId}`);
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.organization) {
+              const idx = list.findIndex((o: any) => o.id === cleanOrgId);
+              if (idx >= 0) {
+                list[idx] = data.organization;
+              } else {
+                list.push(data.organization);
+              }
+              await AsyncStorage.setItem('@nascard:managed_orgs', JSON.stringify(list));
+            }
+          }
+        } catch {}
+
+        router.replace(`/org/manage/${cleanOrgId}` as any);
+        return;
+      }
+
       const fields = rawFields ? JSON.parse(rawFields) : {};
       const result = await verifyPaymentAndJoin(orgId || '', reference || '', {
         memberName: memberName || '',

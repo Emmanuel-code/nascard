@@ -22,13 +22,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCards } from '@/contexts/CardContext';
 import { useOrg } from '@/contexts/OrgContext';
 import { useColors } from '@/hooks/useColors';
+import { useFocusEffect } from '@react-navigation/native';
 
 export default function OrgHubScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { managedOrgs, getOrgDetails } = useOrg();
+  const { managedOrgs, getOrgDetails, loadLocalManagedOrgs } = useOrg();
   const { cards } = useCards();
+
+  useFocusEffect(
+    useCallback(() => {
+      loadLocalManagedOrgs();
+    }, [loadLocalManagedOrgs])
+  );
 
   const [joinModalVisible, setJoinModalVisible] = useState(false);
   const [inviteCodeInput, setInviteCodeInput] = useState('');
@@ -213,7 +220,7 @@ export default function OrgHubScreen() {
                   <View style={styles.partnerCardTop}>
                     <Text style={[styles.partnerCardTitle, { color: colors.foreground }]}>{card.title}</Text>
                     <View style={[styles.verifiedPill, { backgroundColor: colors.primary + '20' }]}>
-                      <Ionicons name="checkmark-seal" size={12} color={colors.primary} />
+                      <Ionicons name="checkmark-circle" size={12} color={colors.primary} />
                       <Text style={[styles.verifiedText, { color: colors.primary }]}>VERIFIED</Text>
                     </View>
                   </View>

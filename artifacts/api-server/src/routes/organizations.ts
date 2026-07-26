@@ -555,6 +555,31 @@ router.post("/organizations/:id/payment/initialize", async (req: Request, res: R
   }
 });
 
+// ─── Upgrade Organization Tier ────────────────────────────────────────────────
+router.post("/organizations/:id/upgrade", (req: Request, res: Response) => {
+  try {
+    const orgId = String(req.params["id"] || "");
+    const { tier, billingCycle } = req.body;
+    const org = organizationsStore.get(orgId);
+    if (!org) {
+      res.status(404).json({ error: "Organization not found" });
+      return;
+    }
+
+    if (tier === "pro" || tier === "enterprise") {
+      org.tier = tier;
+      org.memberLimit = tier === "enterprise" ? 10000 : 500;
+      if (billingCycle) org.billingCycle = billingCycle;
+      organizationsStore.set(orgId, org);
+      saveOrgs();
+    }
+
+    res.json({ organization: org });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to upgrade organization" });
+  }
+});
+
 // ─── Paystack Webhook Listener ────────────────────────────────────────────────
 
 router.post("/paystack/webhook", (req: Request, res: Response) => {

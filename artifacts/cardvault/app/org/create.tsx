@@ -304,6 +304,28 @@ export default function CreateOrgScreen() {
             </View>
 
             <View style={styles.fieldGroup}>
+              <Text style={[styles.label, { color: colors.foreground }]}>Pass Description / Pass Benefits</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: colors.card,
+                    color: colors.foreground,
+                    borderColor: colors.border,
+                    height: 72,
+                    paddingTop: 10,
+                  },
+                ]}
+                placeholder="e.g. Official digital ID pass for Apex Gym members. Grants 24/7 access to all gym locations."
+                placeholderTextColor={colors.mutedForeground}
+                multiline
+                numberOfLines={3}
+                value={description}
+                onChangeText={setDescription}
+              />
+            </View>
+
+            <View style={styles.fieldGroup}>
               <Text style={[styles.label, { color: colors.foreground }]}>Admin Name & Email *</Text>
               <TextInput
                 style={[styles.input, { backgroundColor: colors.card, color: colors.foreground, borderColor: colors.border, marginBottom: 8 }]}

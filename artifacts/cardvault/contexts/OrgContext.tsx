@@ -113,8 +113,10 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
         if (res.ok) {
           const json = await res.json();
           const created: Organization = json.organization;
-          const updated = [...managedOrgs, created];
-          await saveManagedOrgs(updated);
+          if (data.tier === 'starter' || !data.tier) {
+            const updated = [...managedOrgs, created];
+            await saveManagedOrgs(updated);
+          }
           return created;
         }
       } catch (err) {
@@ -140,15 +142,22 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
         badgeStyle: data.badgeStyle || 'holographic',
         customFields: data.customFields || [],
         membershipFee: data.membershipFee || 0,
-        tier: 'pro',
-        memberLimit: 250,
+        membershipFeeInterval: data.membershipFeeInterval || 'free',
+        membershipFeeDescription: data.membershipFeeDescription || '',
+        tier: data.tier || 'starter',
+        billingCycle: data.billingCycle || 'monthly',
+        requirePhoto: data.requirePhoto ?? true,
+        idGenerationMode: data.idGenerationMode || 'member_provided',
+        memberLimit: data.tier === 'enterprise' ? 10000 : data.tier === 'pro' ? 500 : 25,
         activeMemberCount: 0,
         inviteCode,
         createdAt: new Date().toISOString(),
       };
 
-      const updated = [...managedOrgs, created];
-      await saveManagedOrgs(updated);
+      if (data.tier === 'starter' || !data.tier) {
+        const updated = [...managedOrgs, created];
+        await saveManagedOrgs(updated);
+      }
       return created;
     },
     [managedOrgs, saveManagedOrgs],
@@ -251,6 +260,18 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
 
       // Add to CardContext
       const addedCard = await addCard(issuedCardData);
+
+      // Dynamically increment active member count on managed org list
+      const rawOrgs = await AsyncStorage.getItem(MANAGED_ORGS_KEY);
+      if (rawOrgs) {
+        try {
+          const list: Organization[] = JSON.parse(rawOrgs);
+          const updated = list.map((o) =>
+            o.id === orgId ? { ...o, activeMemberCount: (o.activeMemberCount || 0) + 1 } : o
+          );
+          await saveManagedOrgs(updated);
+        } catch {}
+      }
 
       return {
         card: addedCard,

@@ -216,9 +216,9 @@ export default function OrgManagerDashboardScreen() {
         pathname: '/org/payment',
         params: {
           authorizationUrl: authUrl,
-          orgId: 'pro_pass',
-          reference: `nascard_${targetTier}_${upgradeBillingCycle}_${Date.now()}`,
-          memberName: `${org.name} Tier Upgrade (${targetTier.toUpperCase()} ${upgradeBillingCycle.toUpperCase()})`,
+          orgId: `org_plan_${org.id}`,
+          reference: `nascard_upgrade_${targetTier}_${org.id}_${Date.now()}`,
+          memberName: `${org.name} (${targetTier.toUpperCase()} ${upgradeBillingCycle.toUpperCase()} Tier)`,
           memberEmail: org.managerEmail || 'admin@nascard.app',
         },
       } as any);
