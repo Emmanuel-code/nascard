@@ -6,6 +6,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -33,10 +34,12 @@ export default function CreateOrgScreen() {
   const [payoutMomoNumber, setPayoutMomoNumber] = useState('');
   const [payoutMomoNetwork, setPayoutMomoNetwork] = useState('MTN');
 
-  // Custom Fields Schema
+  // Step 2 Controls: Custom Fields, Photo Toggle, ID Mode
+  const [requirePhoto, setRequirePhoto] = useState(true);
+  const [idGenerationMode, setIdGenerationMode] = useState<'member_provided' | 'auto_generated'>('member_provided');
   const [customFields, setCustomFields] = useState<CustomFieldSchema[]>([
-    { key: 'studentId', label: 'ID / Pass Number', type: 'text', required: true },
-    { key: 'department', label: 'Department / Branch', type: 'text', required: false },
+    { key: 'studentId', label: 'Index / Student ID #', type: 'text', required: true },
+    { key: 'department', label: 'Faculty / Department', type: 'text', required: false },
   ]);
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldRequired, setNewFieldRequired] = useState(true);
@@ -45,11 +48,38 @@ export default function CreateOrgScreen() {
   const [selectedTheme, setSelectedTheme] = useState(THEME_PRESETS[0]!);
   const [securityStrip, setSecurityStrip] = useState<'hologram' | 'gold' | 'standard'>('hologram');
   const [photoFrameStyle, setPhotoFrameStyle] = useState<'square' | 'gold_border' | 'circle'>('gold_border');
+  
+  // Step 4 State: Fee & Plan Billing
   const [membershipFee, setMembershipFee] = useState('0');
   const [feeInterval, setFeeInterval] = useState<'free' | 'one_time' | 'monthly' | 'yearly'>('free');
   const [orgTier, setOrgTier] = useState<'starter' | 'pro' | 'enterprise'>('starter');
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleCategoryChange = (cat: 'school' | 'gym' | 'corporate' | 'community') => {
+    setCategory(cat);
+    if (cat === 'school') {
+      setCustomFields([
+        { key: 'studentId', label: 'Index / Student ID #', type: 'text', required: true },
+        { key: 'department', label: 'Faculty / Department', type: 'text', required: false },
+      ]);
+    } else if (cat === 'gym') {
+      setCustomFields([
+        { key: 'memberId', label: 'Membership ID / Locker #', type: 'text', required: true },
+        { key: 'emergencyPhone', label: 'Emergency Contact Phone', type: 'phone', required: true },
+      ]);
+    } else if (cat === 'corporate') {
+      setCustomFields([
+        { key: 'employeeId', label: 'Employee ID #', type: 'text', required: true },
+        { key: 'accessGroup', label: 'Access Group / Department', type: 'text', required: false },
+      ]);
+    } else {
+      setCustomFields([
+        { key: 'memberId', label: 'Member ID #', type: 'text', required: true },
+      ]);
+    }
+  };
 
   const addCustomField = () => {
     if (!newFieldLabel.trim()) return;
@@ -98,11 +128,45 @@ export default function CreateOrgScreen() {
         membershipFee: feeNum,
         feeInterval: feeNum > 0 ? (feeInterval === 'free' ? 'one_time' : feeInterval) : 'free',
         tier: orgTier,
+        billingCycle,
+        requirePhoto,
+        idGenerationMode,
       });
 
+      // Paid plan selected -> Trigger Paystack Checkout
+      if (orgTier !== 'starter') {
+        const tierPriceGhs = orgTier === 'pro'
+          ? (billingCycle === 'monthly' ? 199 : 1800)
+          : (billingCycle === 'monthly' ? 1499 : 12000);
+
+        Alert.alert(
+          '💳 Checkout Required',
+          `Proceed to Paystack Mobile Money / Card checkout to activate your ${orgTier.toUpperCase()} ${billingCycle.toUpperCase()} Plan (GH₵ ${tierPriceGhs}).`,
+          [
+            {
+              text: 'Complete Payment',
+              onPress: () => {
+                router.replace({
+                  pathname: '/org/payment' as any,
+                  params: {
+                    authorizationUrl: '',
+                    orgId: created.id,
+                    reference: `nascard_${orgTier}_${created.id}_${Date.now()}`,
+                    memberName: `${created.name} (${orgTier.toUpperCase()} Plan)`,
+                    memberEmail: adminEmail.trim(),
+                  },
+                });
+              },
+            },
+          ]
+        );
+        return;
+      }
+
+      // Free Starter Plan
       Alert.alert(
         '🎉 Organization Launched!',
-        `Your Pass Creator Studio is live!\n\nInvite Code: ${created.inviteCode}\n\nMembers can join using this code or invite link.`,
+        `Your Pass Creator Studio is live on Starter Plan!\n\nInvite Code: ${created.inviteCode}\n\nMembers can join using this code or invite link.`,
         [
           {
             text: 'Manage Organization',
@@ -186,7 +250,7 @@ export default function CreateOrgScreen() {
           <View style={styles.stepContainer}>
             <Text style={[styles.stepTitle, { color: colors.foreground }]}>1. Organization Profile</Text>
             <Text style={[styles.stepSub, { color: colors.mutedForeground }]}>
-              Enter your school, gym, or business details to set up your digital pass hub.
+              Enter your school, gym, office, or association details.
             </Text>
 
             <View style={styles.fieldGroup}>
@@ -210,7 +274,7 @@ export default function CreateOrgScreen() {
                           borderWidth: sel ? 2 : 1,
                         },
                       ]}
-                      onPress={() => setCategory(c.id as any)}
+                      onPress={() => handleCategoryChange(c.id as any)}
                     >
                       <Text style={[styles.catLabel, { color: colors.foreground }]}>{c.title}</Text>
                     </TouchableOpacity>
@@ -251,7 +315,7 @@ export default function CreateOrgScreen() {
             </View>
 
             <View style={styles.fieldGroup}>
-              <Text style={[styles.label, { color: colors.foreground }]}>MoMo Payout Number (For Fee Receipts)</Text>
+              <Text style={[styles.label, { color: colors.foreground }]}>MoMo Payout Number (For Member Fees)</Text>
               <TextInput
                 style={[styles.input, { backgroundColor: colors.card, color: colors.foreground, borderColor: colors.border }]}
                 placeholder="024 123 4567"
@@ -264,27 +328,63 @@ export default function CreateOrgScreen() {
           </View>
         )}
 
-        {/* STEP 2: Custom Pass Fields */}
+        {/* STEP 2: Custom Pass Fields & Rules */}
         {step === 2 && (
           <View style={styles.stepContainer}>
-            <Text style={[styles.stepTitle, { color: colors.foreground }]}>2. Custom Pass Fields</Text>
+            <Text style={[styles.stepTitle, { color: colors.foreground }]}>2. Pass Requirements & Custom Fields</Text>
             <Text style={[styles.stepSub, { color: colors.mutedForeground }]}>
-              Define required fields for member passes (e.g. Student ID #, Department, Locker #).
+              Customize member requirements, selfie photos, and ID number generation rules.
             </Text>
 
-            {/* Passport Selfie Requirement Notice */}
-            <View style={{ backgroundColor: colors.primary + '14', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: colors.primary + '33', marginBottom: 16 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <Ionicons name="camera" size={18} color={colors.primary} />
-                <Text style={{ fontSize: 13, fontFamily: 'Inter_700Bold', color: colors.primary }}>Passport Photo / Selfie (Required)</Text>
+            {/* Passport Selfie Requirement Toggle */}
+            <View style={[styles.toggleBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="camera-outline" size={18} color={colors.primary} />
+                  <Text style={[styles.label, { color: colors.foreground, marginBottom: 2 }]}>Passport Photo / Selfie Requirement</Text>
+                </View>
+                <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 16 }}>
+                  {requirePhoto ? 'Members MUST upload a passport selfie for gate check-in verification.' : 'Optional. Members can claim pass without uploading a photo.'}
+                </Text>
               </View>
-              <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: colors.foreground, lineHeight: 18 }}>
-                All members will be required to upload a clean Passport Selfie when claiming their pass for gate check-in verification.
-              </Text>
+              <Switch
+                value={requirePhoto}
+                onValueChange={setRequirePhoto}
+                trackColor={{ false: colors.border, true: colors.primary }}
+              />
+            </View>
+
+            {/* ID Number Generation Mode */}
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, { color: colors.foreground }]}>Member ID / Pass Number Mode</Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {[
+                  { id: 'member_provided', label: '👤 Member Provided', desc: 'Member types index # or employee ID' },
+                  { id: 'auto_generated', label: '🤖 Auto Generated', desc: 'System assigns e.g. APX-1001' },
+                ].map((mode) => (
+                  <TouchableOpacity
+                    key={mode.id}
+                    style={[
+                      styles.modeCard,
+                      {
+                        backgroundColor: idGenerationMode === mode.id ? colors.primary + '18' : colors.card,
+                        borderColor: idGenerationMode === mode.id ? colors.primary : colors.border,
+                        borderWidth: idGenerationMode === mode.id ? 2 : 1,
+                      },
+                    ]}
+                    onPress={() => setIdGenerationMode(mode.id as any)}
+                  >
+                    <Text style={[styles.modeTitle, { color: idGenerationMode === mode.id ? colors.primary : colors.foreground }]}>
+                      {mode.label}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: colors.mutedForeground }}>{mode.desc}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
 
             {/* Configured Fields */}
-            <Text style={[styles.label, { color: colors.foreground, marginBottom: 8 }]}>Configured Fields List</Text>
+            <Text style={[styles.label, { color: colors.foreground, marginTop: 8 }]}>Pass Data Fields List</Text>
             {customFields.map((f, i) => (
               <View
                 key={f.key}
@@ -296,20 +396,18 @@ export default function CreateOrgScreen() {
                   </Text>
                   <Text style={{ fontSize: 11, color: colors.mutedForeground }}>Type: {f.type.toUpperCase()}</Text>
                 </View>
-                {i > 0 && (
-                  <TouchableOpacity onPress={() => removeCustomField(f.key)}>
-                    <Ionicons name="trash-outline" size={18} color="#EF4444" />
-                  </TouchableOpacity>
-                )}
+                <TouchableOpacity onPress={() => removeCustomField(f.key)}>
+                  <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                </TouchableOpacity>
               </View>
             ))}
 
             {/* Add Custom Field Form */}
-            <View style={[styles.addFieldCard, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 12 }]}>
-              <Text style={[styles.label, { color: colors.foreground }]}>Add New Custom Field</Text>
+            <View style={[styles.addFieldCard, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 4 }]}>
+              <Text style={[styles.label, { color: colors.foreground }]}>Add Extra Field</Text>
               <TextInput
                 style={[styles.input, { backgroundColor: colors.background, color: colors.foreground, borderColor: colors.border, marginBottom: 10 }]}
-                placeholder="Field Label (e.g. Locker #, Grade Level)"
+                placeholder="e.g. Locker #, Grade, Emergency Phone"
                 placeholderTextColor={colors.mutedForeground}
                 value={newFieldLabel}
                 onChangeText={setNewFieldLabel}
@@ -329,7 +427,7 @@ export default function CreateOrgScreen() {
         {step === 3 && (
           <View style={styles.stepContainer}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={[styles.stepTitle, { color: colors.foreground }]}>3. Digital Card Design Studio</Text>
+              <Text style={[styles.stepTitle, { color: colors.foreground }]}>3. Pass Design Studio</Text>
               <TouchableOpacity
                 style={{
                   flexDirection: 'row',
@@ -347,16 +445,13 @@ export default function CreateOrgScreen() {
                   else if (category === 'gym') setSelectedTheme(THEME_PRESETS[1]!);
                   else if (category === 'corporate') setSelectedTheme(THEME_PRESETS[2]!);
                   else setSelectedTheme(THEME_PRESETS[3]!);
-                  Alert.alert('⚡ AI Design Generator', `Generated matching 3D theme & badge layout for "${name || 'Your Org'}"!`);
+                  Alert.alert('⚡ AI Design Studio', `Generated matching 3D theme for "${name || 'Your Org'}"!`);
                 }}
               >
                 <Ionicons name="sparkles" size={14} color={colors.primary} />
-                <Text style={{ fontSize: 11, fontFamily: 'Inter_700Bold', color: colors.primary }}>Generate with AI</Text>
+                <Text style={{ fontSize: 11, fontFamily: 'Inter_700Bold', color: colors.primary }}>AI Theme</Text>
               </TouchableOpacity>
             </View>
-            <Text style={[styles.stepSub, { color: colors.mutedForeground }]}>
-              Customize 3D color themes & badge aesthetics for your members' wallet.
-            </Text>
 
             {/* Live Card Preview */}
             <View style={[styles.previewCard, { backgroundColor: selectedTheme.primary, overflow: 'hidden' }]}>
@@ -378,25 +473,29 @@ export default function CreateOrgScreen() {
               </View>
 
               <View style={styles.previewBody}>
-                <View
-                  style={[
-                    styles.previewAvatar,
-                    photoFrameStyle === 'circle' && { borderRadius: 24 },
-                    photoFrameStyle === 'gold_border' && { borderWidth: 2, borderColor: '#F59E0B', borderRadius: 12 },
-                    photoFrameStyle === 'square' && { borderRadius: 6 },
-                  ]}
-                >
-                  <Ionicons name="person" size={24} color="#FFFFFF" />
-                </View>
-                <View>
+                {requirePhoto && (
+                  <View
+                    style={[
+                      styles.previewAvatar,
+                      photoFrameStyle === 'circle' && { borderRadius: 24 },
+                      photoFrameStyle === 'gold_border' && { borderWidth: 2, borderColor: '#F59E0B', borderRadius: 12 },
+                      photoFrameStyle === 'square' && { borderRadius: 6 },
+                    ]}
+                  >
+                    <Ionicons name="person" size={24} color="#FFFFFF" />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
                   <Text style={styles.previewMemberName}>John Doe</Text>
-                  <Text style={styles.previewMemberSub}>Member ID: APX-8820</Text>
+                  <Text style={styles.previewMemberSub}>
+                    {idGenerationMode === 'auto_generated' ? 'ID: APX-1001 (Auto)' : 'ID: APX-8820'}
+                  </Text>
                 </View>
               </View>
 
               <View style={styles.previewFooter}>
                 <Ionicons name="qr-code-outline" size={20} color={selectedTheme.accent} />
-                <Text style={[styles.previewFooterText, { color: selectedTheme.accent }]}>Tap to Show Live Entry QR</Text>
+                <Text style={[styles.previewFooterText, { color: selectedTheme.accent }]}>Live Gate Check-in QR</Text>
               </View>
             </View>
 
@@ -427,9 +526,9 @@ export default function CreateOrgScreen() {
             <Text style={[styles.label, { color: colors.foreground, marginTop: 12 }]}>Security Edge Foil Strip</Text>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               {[
-                { id: 'hologram', label: '🌈 Rainbow Hologram' },
-                { id: 'gold', label: '✨ 24K Gold Foil' },
-                { id: 'standard', label: '🛡️ Standard Edge' },
+                { id: 'hologram', label: '🌈 Hologram' },
+                { id: 'gold', label: '✨ 24K Gold' },
+                { id: 'standard', label: '🛡️ Standard' },
               ].map((strip) => (
                 <TouchableOpacity
                   key={strip.id}
@@ -450,44 +549,52 @@ export default function CreateOrgScreen() {
                 </TouchableOpacity>
               ))}
             </View>
-
-            {/* Passport Photo Frame Selector */}
-            <Text style={[styles.label, { color: colors.foreground, marginTop: 12 }]}>Passport Photo Frame Style</Text>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              {[
-                { id: 'gold_border', label: '🖼️ Gold Frame' },
-                { id: 'circle', label: '⭕ Circle Avatar' },
-                { id: 'square', label: '🔲 Square Badge' },
-              ].map((frame) => (
-                <TouchableOpacity
-                  key={frame.id}
-                  style={{
-                    flex: 1,
-                    backgroundColor: photoFrameStyle === frame.id ? colors.primary + '18' : colors.card,
-                    borderColor: photoFrameStyle === frame.id ? colors.primary : colors.border,
-                    borderWidth: photoFrameStyle === frame.id ? 2 : 1,
-                    paddingVertical: 10,
-                    borderRadius: 10,
-                    alignItems: 'center',
-                  }}
-                  onPress={() => setPhotoFrameStyle(frame.id as any)}
-                >
-                  <Text style={{ fontSize: 11, fontFamily: 'Inter_700Bold', color: photoFrameStyle === frame.id ? colors.primary : colors.foreground }}>
-                    {frame.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
           </View>
         )}
 
         {/* STEP 4: Summary & Launch */}
         {step === 4 && (
           <View style={styles.stepContainer}>
-            <Text style={[styles.stepTitle, { color: colors.foreground }]}>4. Pricing & Launch</Text>
+            <Text style={[styles.stepTitle, { color: colors.foreground }]}>4. Pricing & Launch Plan</Text>
             <Text style={[styles.stepSub, { color: colors.mutedForeground }]}>
-              Set your membership fee and billing cycle, then launch!
+              Choose your organization capacity tier and billing cycle.
             </Text>
+
+            {/* Billing Cycle Switcher */}
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, { color: colors.foreground }]}>Billing Cycle</Text>
+              <View style={{ flexDirection: 'row', backgroundColor: colors.card, padding: 4, borderRadius: 12, borderWidth: 1, borderColor: colors.border }}>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    paddingVertical: 10,
+                    alignItems: 'center',
+                    borderRadius: 8,
+                    backgroundColor: billingCycle === 'monthly' ? colors.primary : 'transparent',
+                  }}
+                  onPress={() => setBillingCycle('monthly')}
+                >
+                  <Text style={{ fontSize: 13, fontFamily: 'Inter_700Bold', color: billingCycle === 'monthly' ? colors.primaryForeground : colors.foreground }}>
+                    Monthly Billing
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    paddingVertical: 10,
+                    alignItems: 'center',
+                    borderRadius: 8,
+                    backgroundColor: billingCycle === 'yearly' ? colors.primary : 'transparent',
+                  }}
+                  onPress={() => setBillingCycle('yearly')}
+                >
+                  <Text style={{ fontSize: 13, fontFamily: 'Inter_700Bold', color: billingCycle === 'yearly' ? colors.primaryForeground : colors.foreground }}>
+                    Yearly Billing (Save ~30%)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
 
             {/* Org Platform Plan Selector */}
             <View style={styles.fieldGroup}>
@@ -499,26 +606,26 @@ export default function CreateOrgScreen() {
                     title: 'Starter Plan (Free)',
                     price: 'GH₵ 0 / year',
                     limit: 'Up to 25 active members',
-                    desc: 'Free forever. Includes fee collection + MoMo/Bank payouts.',
+                    desc: 'Free forever. Includes fee collection + MoMo payouts.',
                     badge: 'FREE',
                     badgeColor: '#10B981',
                   },
                   {
                     id: 'pro',
                     title: 'Pro Organization',
-                    price: 'GH₵ 199 / mo  or  GH₵ 1,800 / year',
+                    price: billingCycle === 'monthly' ? 'GH₵ 199 / month' : 'GH₵ 1,800 / year (Save GH₵ 588)',
                     limit: 'Up to 500 active members',
                     desc: 'Higher member quota + custom branding + door scanner app.',
-                    badge: 'GYMS & CLUBS',
+                    badge: 'POPULAR',
                     badgeColor: '#3B82F6',
                   },
                   {
                     id: 'enterprise',
                     title: 'Enterprise Plan',
-                    price: 'GH₵ 1,499 / mo  or  GH₵ 12,000 / year',
+                    price: billingCycle === 'monthly' ? 'GH₵ 1,499 / month' : 'GH₵ 12,000 / year (Save GH₵ 5,988)',
                     limit: 'Up to 10,000 active members',
                     desc: 'Best for Schools & Universities. Includes Multi-Admin & Priority Support.',
-                    badge: 'BEST FOR SCHOOLS',
+                    badge: 'SCHOOLS',
                     badgeColor: '#8B5CF6',
                   },
                 ].map((plan) => {
@@ -550,9 +657,9 @@ export default function CreateOrgScreen() {
               </View>
             </View>
 
-            {/* Fee Amount */}
+            {/* Member Fee Amount */}
             <View style={styles.fieldGroup}>
-              <Text style={[styles.label, { color: colors.foreground }]}>Member Joining Fee (GH₵ — enter 0 for Free Pass)</Text>
+              <Text style={[styles.label, { color: colors.foreground }]}>Member Pass Joining Fee (GH₵ — enter 0 for Free Pass)</Text>
               <TextInput
                 style={[
                   styles.input,
@@ -571,53 +678,6 @@ export default function CreateOrgScreen() {
                 }}
                 keyboardType="numeric"
               />
-
-              {/* Final Pass Live Preview Card before Submit */}
-              <Text style={[styles.label, { color: colors.foreground, marginTop: 12 }]}>Final Member Pass Preview</Text>
-              <View style={[styles.previewCard, { backgroundColor: selectedTheme.primary, overflow: 'hidden', marginBottom: 16 }]}>
-                {securityStrip === 'hologram' && (
-                  <View style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 8, backgroundColor: '#3B82F6', opacity: 0.8 }} />
-                )}
-                {securityStrip === 'gold' && (
-                  <View style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 8, backgroundColor: '#F59E0B' }} />
-                )}
-
-                <View style={styles.previewHeader}>
-                  <View style={styles.previewOrgBadge}>
-                    <Ionicons name="shield-checkmark" size={18} color={selectedTheme.accent} />
-                    <Text style={[styles.previewOrgName, { color: '#FFFFFF' }]}>{name || 'Organization Name'}</Text>
-                  </View>
-                  <View style={[styles.previewTag, { backgroundColor: selectedTheme.accent }]}>
-                    <Text style={styles.previewTagText}>OFFICIAL PASS</Text>
-                  </View>
-                </View>
-
-                <View style={styles.previewBody}>
-                  <View
-                    style={[
-                      styles.previewAvatar,
-                      photoFrameStyle === 'circle' && { borderRadius: 24 },
-                      photoFrameStyle === 'gold_border' && { borderWidth: 2, borderColor: '#F59E0B', borderRadius: 12 },
-                      photoFrameStyle === 'square' && { borderRadius: 6 },
-                    ]}
-                  >
-                    <Ionicons name="person" size={24} color="#FFFFFF" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.previewMemberName} numberOfLines={1}>John Doe</Text>
-                    <Text style={styles.previewMemberSub} numberOfLines={1}>Member ID: APX-8820</Text>
-                  </View>
-                </View>
-
-                <View style={styles.previewFooter}>
-                  <Ionicons name="qr-code-outline" size={20} color={selectedTheme.accent} />
-                  <Text style={[styles.previewFooterText, { color: selectedTheme.accent }]}>Dynamic Check-in QR</Text>
-                </View>
-              </View>
-
-              <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }}>
-                💡 You can charge a fee or issue free passes on any plan. Collected fees can be withdrawn via MoMo or Bank.
-              </Text>
             </View>
           </View>
         )}
@@ -651,7 +711,11 @@ export default function CreateOrgScreen() {
           >
             <Ionicons name="rocket-outline" size={18} color={colors.primaryForeground} />
             <Text style={[styles.navBtnText, { color: colors.primaryForeground }]}>
-              {isSubmitting ? 'Launching...' : 'Launch Pass Studio'}
+              {isSubmitting
+                ? 'Launching...'
+                : orgTier === 'starter'
+                ? 'Launch Free Studio'
+                : `Pay & Launch ${orgTier.toUpperCase()}`}
             </Text>
           </TouchableOpacity>
         )}
@@ -711,6 +775,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Inter_400Regular',
   },
+  toggleBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  modeCard: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 10,
+    gap: 4,
+  },
+  modeTitle: { fontSize: 13, fontFamily: 'Inter_700Bold' },
   fieldRow: {
     flexDirection: 'row',
     alignItems: 'center',

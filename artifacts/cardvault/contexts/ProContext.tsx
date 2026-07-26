@@ -57,18 +57,23 @@ export function ProProvider({ children }: { children: React.ReactNode }) {
 
   const getCheckoutUrl = useCallback(async (): Promise<string> => {
     const apiBase = process.env.EXPO_PUBLIC_DOMAIN || 'https://nascard-api.onrender.com';
+    console.log('💳 [PAYSTACK CLIENT LOG]: Initializing Pro Checkout at:', `${apiBase}/api/paystack/pro-checkout`);
     try {
       const resp = await fetch(`${apiBase}/api/paystack/pro-checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: 'user@nascard.app', amount: 29 }),
       });
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.authorizationUrl) return data.authorizationUrl;
+      console.log('💳 [PAYSTACK CLIENT LOG]: Response HTTP status:', resp.status);
+      const data = await resp.json();
+      console.log('💳 [PAYSTACK CLIENT LOG]: Response payload:', data);
+      if (data.authorizationUrl) {
+        return data.authorizationUrl;
       }
-    } catch {}
-    return 'https://nascard-api.onrender.com';
+    } catch (err) {
+      console.error('💳 [PAYSTACK CLIENT ERROR]:', err);
+    }
+    return '';
   }, []);
 
   const clearPro = useCallback(async () => {

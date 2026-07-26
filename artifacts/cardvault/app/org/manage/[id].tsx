@@ -186,7 +186,10 @@ export default function OrgManagerDashboardScreen() {
     setIsUpgrading(true);
     try {
       setShowUpgradeModal(false);
-      const amountGhs = targetTier === 'pro' ? 199 : 1499;
+      const amountGhs = targetTier === 'pro'
+        ? (upgradeBillingCycle === 'monthly' ? 199 : 1800)
+        : (upgradeBillingCycle === 'monthly' ? 1499 : 12000);
+
       const apiBase = process.env.EXPO_PUBLIC_DOMAIN || 'https://nascard-api.onrender.com';
       let authUrl = '';
 
@@ -213,14 +216,14 @@ export default function OrgManagerDashboardScreen() {
         params: {
           authorizationUrl: authUrl,
           orgId: 'pro_pass',
-          reference: `nascard_${targetTier}_${Date.now()}`,
-          memberName: `${org.name} Tier Upgrade (${targetTier.toUpperCase()})`,
+          reference: `nascard_${targetTier}_${upgradeBillingCycle}_${Date.now()}`,
+          memberName: `${org.name} Tier Upgrade (${targetTier.toUpperCase()} ${upgradeBillingCycle.toUpperCase()})`,
           memberEmail: org.managerEmail || 'admin@nascard.app',
         },
       } as any);
 
       const newLimit = targetTier === 'pro' ? 500 : 10000;
-      setOrg({ ...org, tier: targetTier, memberLimit: newLimit });
+      setOrg({ ...org, tier: targetTier, memberLimit: newLimit, billingCycle: upgradeBillingCycle });
     } catch (e) {
       Alert.alert('Error', 'Upgrade failed. Please try again.');
     } finally {
@@ -735,6 +738,38 @@ export default function OrgManagerDashboardScreen() {
                 Current Plan: <Text style={{ fontFamily: 'Inter_700Bold', color: colors.foreground }}>{(org.tier || 'starter').toUpperCase()}</Text> ({members.length} / {org.memberLimit || 25} Members). Upgrade your plan to increase active member capacity.
               </Text>
 
+              {/* Billing Cycle Selector */}
+              <View style={{ flexDirection: 'row', backgroundColor: colors.background, padding: 4, borderRadius: 10, borderWidth: 1, borderColor: colors.border, marginBottom: 14 }}>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    paddingVertical: 8,
+                    alignItems: 'center',
+                    borderRadius: 8,
+                    backgroundColor: upgradeBillingCycle === 'monthly' ? colors.primary : 'transparent',
+                  }}
+                  onPress={() => setUpgradeBillingCycle('monthly')}
+                >
+                  <Text style={{ fontSize: 12, fontFamily: 'Inter_700Bold', color: upgradeBillingCycle === 'monthly' ? colors.primaryForeground : colors.foreground }}>
+                    Monthly Billing
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    paddingVertical: 8,
+                    alignItems: 'center',
+                    borderRadius: 8,
+                    backgroundColor: upgradeBillingCycle === 'yearly' ? colors.primary : 'transparent',
+                  }}
+                  onPress={() => setUpgradeBillingCycle('yearly')}
+                >
+                  <Text style={{ fontSize: 12, fontFamily: 'Inter_700Bold', color: upgradeBillingCycle === 'yearly' ? colors.primaryForeground : colors.foreground }}>
+                    Yearly (Save ~30%)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
               <View style={{ gap: 10 }}>
                 {/* Pro Tier Option */}
                 <TouchableOpacity
@@ -751,9 +786,11 @@ export default function OrgManagerDashboardScreen() {
                 >
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={[styles.tierOptionTitle, { color: colors.foreground }]}>
-                      Pro Organization Tier {(org.tier || 'starter') === 'pro' ? '✓ (Current Plan)' : ''}
+                      Pro Tier {(org.tier || 'starter') === 'pro' ? '✓ (Current Plan)' : ''}
                     </Text>
-                    <Text style={[styles.tierOptionPrice, { color: colors.primary }]}>GH₵ 199/mo · GH₵ 1,800/yr</Text>
+                    <Text style={[styles.tierOptionPrice, { color: colors.primary }]}>
+                      {upgradeBillingCycle === 'monthly' ? 'GH₵ 199 / mo' : 'GH₵ 1,800 / yr'}
+                    </Text>
                   </View>
                   <Text style={[styles.tierOptionSub, { color: colors.mutedForeground }]}>
                     Up to 500 active members + fee collection + custom card themes + door scanner
@@ -777,7 +814,9 @@ export default function OrgManagerDashboardScreen() {
                     <Text style={[styles.tierOptionTitle, { color: colors.foreground }]}>
                       Enterprise Tier {(org.tier || 'starter') === 'enterprise' ? '✓ (Current Plan)' : ''}
                     </Text>
-                    <Text style={[styles.tierOptionPrice, { color: '#8B5CF6' }]}>GH₵ 1,499/mo · GH₵ 12,000/yr</Text>
+                    <Text style={[styles.tierOptionPrice, { color: '#8B5CF6' }]}>
+                      {upgradeBillingCycle === 'monthly' ? 'GH₵ 1,499 / mo' : 'GH₵ 12,000 / yr'}
+                    </Text>
                   </View>
                   <Text style={[styles.tierOptionSub, { color: colors.mutedForeground }]}>
                     Up to 10,000 active members + multi-admin accounts + priority support (Best for Universities & High Schools)

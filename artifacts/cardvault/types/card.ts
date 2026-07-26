@@ -61,6 +61,9 @@ export interface Organization {
   membershipFeeInterval: 'one_time' | 'monthly' | 'yearly' | 'free';
   membershipFeeDescription: string;
   tier: 'starter' | 'pro' | 'enterprise';
+  billingCycle?: 'monthly' | 'yearly';
+  requirePhoto?: boolean;
+  idGenerationMode?: 'member_provided' | 'auto_generated';
   memberLimit: number;
   activeMemberCount: number;
   inviteCode: string;

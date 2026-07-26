@@ -47,7 +47,7 @@ export default function PaymentScreen() {
 
   const handleNavigationChange = async (navState: WebViewNavigation) => {
     const url = navState.url || '';
-    // Paystack redirects to our callback URL after payment
+    console.log('💳 [PAYSTACK WEBVIEW NAV]: Navigated to URL:', url);
     const isSuccess =
       url.includes('nascard://payment/success') ||
       url.includes('payment/success') ||
@@ -56,6 +56,7 @@ export default function PaymentScreen() {
       url.includes('reference=');
 
     if (isSuccess && !verifyCalledRef.current) {
+      console.log('💳 [PAYSTACK WEBVIEW NAV]: Payment success URL detected! Triggering verification...');
       verifyCalledRef.current = true;
       setPaymentDone(true);
       await handleVerify();
@@ -63,11 +64,13 @@ export default function PaymentScreen() {
   };
 
   const handleVerify = async () => {
+    console.log('💳 [PAYSTACK VERIFY LOG]: Starting payment verification for orgId:', orgId, 'ref:', reference);
     if (isVerifying) return;
     setIsVerifying(true);
     setError('');
     try {
       if (orgId === 'pro_pass') {
+        console.log('💳 [PAYSTACK VERIFY LOG]: Activating Consumer Pro Pass locally & in storage...');
         await setProActive();
         router.replace('/(tabs)/profile' as any);
         return;
@@ -80,8 +83,10 @@ export default function PaymentScreen() {
         customFieldsData: fields,
       });
 
+      console.log('💳 [PAYSTACK VERIFY LOG]: Member pass issued successfully, card ID:', result.card.id);
       router.replace(`/card/${result.card.id}` as any);
     } catch (e: any) {
+      console.error('💳 [PAYSTACK VERIFY ERROR]:', e);
       setError(e?.message || 'Payment verification failed. Please contact support.');
       verifyCalledRef.current = false;
     } finally {

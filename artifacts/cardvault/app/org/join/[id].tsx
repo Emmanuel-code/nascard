@@ -235,31 +235,43 @@ export default function MemberJoinScreen() {
             />
           </View>
 
-          {/* Member Selfie Photo Picker */}
-          <View style={styles.fieldGroup}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <Text style={[styles.label, { color: colors.foreground, marginBottom: 0 }]}>Passport Photo / Selfie *</Text>
-              <View style={{ backgroundColor: colors.primary + '18', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.primary }}>REQUIRED FOR ID PASS</Text>
+          {/* Member Selfie Photo Picker (Only if requirePhoto is enabled by Manager) */}
+          {(org?.requirePhoto ?? true) && (
+            <View style={styles.fieldGroup}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <Text style={[styles.label, { color: colors.foreground, marginBottom: 0 }]}>Passport Photo / Selfie *</Text>
+                <View style={{ backgroundColor: colors.primary + '18', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                  <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.primary }}>REQUIRED FOR ID PASS</Text>
+                </View>
               </View>
+              <TouchableOpacity
+                style={[styles.photoPickerBtn, { backgroundColor: photoUri ? colors.primary + '12' : colors.secondary, borderColor: photoUri ? colors.primary : colors.border }]}
+                onPress={handlePickPhoto}
+              >
+                {photoUri ? (
+                  <View style={styles.photoPreviewRow}>
+                    <Image source={{ uri: photoUri }} style={styles.photoPreviewThumb} />
+                    <Text style={[styles.photoPickerText, { color: colors.primary, fontFamily: 'Inter_700Bold' }]}>Passport Photo Uploaded ✓ (Tap to change)</Text>
+                  </View>
+                ) : (
+                  <View style={styles.photoPickerRow}>
+                    <Ionicons name="camera" size={22} color={colors.primary} />
+                    <Text style={[styles.photoPickerText, { color: colors.foreground, fontFamily: 'Inter_600SemiBold' }]}>Take Selfie or Upload Passport Photo</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity
-              style={[styles.photoPickerBtn, { backgroundColor: photoUri ? colors.primary + '12' : colors.secondary, borderColor: photoUri ? colors.primary : colors.border }]}
-              onPress={handlePickPhoto}
-            >
-              {photoUri ? (
-                <View style={styles.photoPreviewRow}>
-                  <Image source={{ uri: photoUri }} style={styles.photoPreviewThumb} />
-                  <Text style={[styles.photoPickerText, { color: colors.primary, fontFamily: 'Inter_700Bold' }]}>Passport Photo Uploaded ✓ (Tap to change)</Text>
-                </View>
-              ) : (
-                <View style={styles.photoPickerRow}>
-                  <Ionicons name="camera" size={22} color={colors.primary} />
-                  <Text style={[styles.photoPickerText, { color: colors.foreground, fontFamily: 'Inter_600SemiBold' }]}>Take Selfie or Upload Passport Photo</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          </View>
+          )}
+
+          {/* Auto ID Generation Notice */}
+          {org?.idGenerationMode === 'auto_generated' && (
+            <View style={{ backgroundColor: colors.primary + '14', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.primary + '33', marginBottom: 12 }}>
+              <Text style={{ fontSize: 12, fontFamily: 'Inter_700Bold', color: colors.primary }}>🤖 Auto-Generated Member ID</Text>
+              <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.foreground, marginTop: 2 }}>
+                Your official Member ID / Pass Number will be automatically assigned upon pass issuance.
+              </Text>
+            </View>
+          )}
 
           <View style={styles.fieldGroup}>
             <Text style={[styles.label, { color: colors.foreground }]}>Email Address (Optional)</Text>
