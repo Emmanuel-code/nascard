@@ -42,6 +42,9 @@ export interface Organization {
   membershipFeeInterval: "one_time" | "monthly" | "yearly" | "free";
   membershipFeeDescription: string;
   tier: "starter" | "pro" | "enterprise";
+  billingCycle?: "monthly" | "yearly";
+  requirePhoto?: boolean;
+  idGenerationMode?: "member_provided" | "auto_generated";
   memberLimit: number;
   activeMemberCount: number;
   inviteCode: string;
@@ -704,7 +707,6 @@ router.post("/organizations/:id/join", (req: Request, res: Response) => {
       paymentStatus: "free",
     };
 
-    const existingMembers = membersStore.get(org.id) || [];
     existingMembers.push(newMember);
     membersStore.set(org.id, existingMembers);
     org.activeMemberCount = existingMembers.filter((m) => m.status === "active").length;

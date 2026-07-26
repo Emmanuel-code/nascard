@@ -51,6 +51,7 @@ export default function OrgManagerDashboardScreen() {
   // Payout / Withdrawal Modal State
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradeBillingCycle, setUpgradeBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [payoutMethod, setPayoutMethod] = useState<'momo' | 'bank'>('momo');
   const [withdrawAmount, setWithdrawAmount] = useState('');
