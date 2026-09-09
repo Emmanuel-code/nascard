@@ -49,8 +49,6 @@ Thumbs.db
 .local/
 
 # Environment files & secrets
-artifacts/api-server/.env
-
 .env
 .env.local
 .env.*
