@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import https from "https";
 import crypto from "crypto";
-import { readStore, writeStore, readList, writeList } from "../lib/storage";
+import { supabase } from "../lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -35,7 +35,9 @@ export interface Organization {
   managerEmail: string;
   managerPin?: string;
   primaryColor: string;
+  secondaryColor?: string;
   accentColor: string;
+  logoUri?: string;
   badgeStyle: "holographic" | "gold" | "minimal" | "modern";
   customFields: CustomFieldSchema[];
   membershipFee: number;
@@ -78,52 +80,142 @@ export interface OrgMember {
   paymentStatus?: "paid" | "free" | "pending";
 }
 
-// ─── Persistent Stores ────────────────────────────────────────────────────────
+export interface ProSubscriptionRecord {
+  email: string;
+  reference: string;
+  amount: number;
+  billingCycle: "annual" | "monthly";
+  status: "active" | "canceled" | "expired";
+  activatedAt: string;
+  expiresAt: string;
+}
 
-const organizationsStore = readStore<Organization>("organizations");
-const membersStore = readList<OrgMember>("members");
+function hashManagerPin(pin: string): string {
+  const salt = "nascard-org-mgr-v1";
+  return crypto.pbkdf2Sync(pin, salt, 10000, 32, "sha256").toString("hex");
+}
 
-function saveOrgs() { writeStore("organizations", organizationsStore); }
-function saveMembers() { writeList("members", membersStore); }
+function verifyManagerPin(pin: string, storedHash?: string): boolean {
+  if (!storedHash) return false;
+  if (storedHash === "1234" && pin === "1234") return true;
+  const hashed = hashManagerPin(pin);
+  return hashed === storedHash || storedHash === pin;
+}
 
-// ─── Demo Org Seed ────────────────────────────────────────────────────────────
+function generateSecureToken(): string {
+  return `vtoken_${crypto.randomBytes(24).toString("hex")}`;
+}
 
-const sampleOrgId = "org_demo_gym";
-if (!organizationsStore.has(sampleOrgId)) {
-  const sampleOrg: Organization = {
-    id: sampleOrgId,
-    name: "Apex Fitness & Performance",
-    category: "gym",
-    description: "Official All-Access Member Digital Pass for Apex Fitness",
-    location: "742 Evergreen Terrace, Accra, Ghana",
-    managerName: "Alex Vance",
-    managerEmail: "admin@apexfitness.com",
-    managerPin: "1234",
-    primaryColor: "#0F172A",
-    accentColor: "#F59E0B",
-    badgeStyle: "gold",
-    customFields: [
-      { id: "member_id", label: "Member ID #", type: "text", required: true, placeholder: "APX-8820" },
-      { id: "emergency_phone", label: "Emergency Contact Phone", type: "phone", required: true, placeholder: "0241234567" },
-    ],
-    membershipFee: 0,
-    membershipFeeInterval: "free",
-    membershipFeeDescription: "Free Membership Pass",
-    tier: "pro",
-    memberLimit: 250,
-    activeMemberCount: 0,
-    inviteCode: "APEX2026",
-    createdAt: new Date().toISOString(),
-    totalGrossRevenue: 0,
-    platformFeeCollected: 0,
-    netBalance: 0,
-    totalWithdrawn: 0,
-    payoutHistory: [],
+// ─── DB Helpers ───────────────────────────────────────────────────────────────
+
+// Maps DB row to Organization
+function mapOrgFromDB(row: any): Organization {
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    description: row.description,
+    location: row.location,
+    managerName: row.manager_name,
+    managerEmail: row.manager_email,
+    managerPin: row.manager_pin,
+    primaryColor: row.primary_color,
+    secondaryColor: row.secondary_color,
+    accentColor: row.accent_color,
+    logoUri: row.logo_uri,
+    badgeStyle: row.badge_style,
+    customFields: row.custom_fields,
+    membershipFee: Number(row.membership_fee),
+    membershipFeeInterval: row.membership_fee_interval,
+    membershipFeeDescription: row.membership_fee_description,
+    tier: row.tier,
+    billingCycle: row.billing_cycle,
+    requirePhoto: row.require_photo,
+    idGenerationMode: row.id_generation_mode,
+    memberLimit: row.member_limit,
+    activeMemberCount: row.active_member_count,
+    inviteCode: row.invite_code,
+    createdAt: row.created_at,
+    totalGrossRevenue: Number(row.total_gross_revenue),
+    platformFeeCollected: Number(row.platform_fee_collected),
+    netBalance: Number(row.net_balance),
+    totalWithdrawn: Number(row.total_withdrawn),
+    payoutBankDetails: row.payout_bank_details,
+    payoutHistory: row.payout_history,
   };
-  organizationsStore.set(sampleOrgId, sampleOrg);
-  membersStore.set(sampleOrgId, []);
-  saveOrgs();
-  saveMembers();
+}
+
+// Maps Organization to DB row
+function mapOrgToDB(org: Organization): any {
+  return {
+    id: org.id,
+    name: org.name,
+    category: org.category,
+    description: org.description,
+    location: org.location,
+    manager_name: org.managerName,
+    manager_email: org.managerEmail,
+    manager_pin: org.managerPin,
+    primary_color: org.primaryColor,
+    secondary_color: org.secondaryColor,
+    accent_color: org.accentColor,
+    logo_uri: org.logoUri,
+    badge_style: org.badgeStyle,
+    custom_fields: org.customFields,
+    membership_fee: org.membershipFee,
+    membership_fee_interval: org.membershipFeeInterval,
+    membership_fee_description: org.membershipFeeDescription,
+    tier: org.tier,
+    billing_cycle: org.billingCycle,
+    require_photo: org.requirePhoto,
+    id_generation_mode: org.idGenerationMode,
+    member_limit: org.memberLimit,
+    active_member_count: org.activeMemberCount,
+    invite_code: org.inviteCode,
+    created_at: org.createdAt,
+    total_gross_revenue: org.totalGrossRevenue,
+    platform_fee_collected: org.platformFeeCollected,
+    net_balance: org.netBalance,
+    total_withdrawn: org.totalWithdrawn,
+    payout_bank_details: org.payoutBankDetails,
+    payout_history: org.payoutHistory,
+  };
+}
+
+function mapMemberFromDB(row: any): OrgMember {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    memberName: row.member_name,
+    memberEmail: row.member_email,
+    customFieldsData: row.custom_fields_data,
+    photoUri: row.photo_uri,
+    cardId: row.card_id,
+    status: row.status,
+    verificationToken: row.verification_token,
+    joinedAt: row.joined_at,
+    expiresAt: row.expires_at,
+    paystackReference: row.paystack_reference,
+    paymentStatus: row.payment_status,
+  };
+}
+
+function mapMemberToDB(member: OrgMember): any {
+  return {
+    id: member.id,
+    org_id: member.orgId,
+    member_name: member.memberName,
+    member_email: member.memberEmail,
+    custom_fields_data: member.customFieldsData,
+    photo_uri: member.photoUri,
+    card_id: member.cardId,
+    status: member.status,
+    verification_token: member.verificationToken,
+    joined_at: member.joinedAt,
+    expires_at: member.expiresAt,
+    paystack_reference: member.paystackReference,
+    payment_status: member.paymentStatus,
+  };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -145,25 +237,24 @@ function calcExpiresAt(interval: Organization["membershipFeeInterval"]): string 
   return undefined;
 }
 
-function autoExpireMembers(orgId: string): void {
-  const members = membersStore.get(orgId) || [];
+async function autoExpireMembers(orgId: string): Promise<void> {
+  const { data: members, error } = await supabase.from("org_members").select("*").eq("org_id", orgId);
+  if (error || !members) return;
+
   const now = new Date();
-  let changed = false;
-  const updated = members.map((m) => {
-    if (m.status === "active" && m.expiresAt && new Date(m.expiresAt) < now) {
-      changed = true;
-      return { ...m, status: "expired" as const };
+  let expiredCount = 0;
+  
+  for (const row of members) {
+    if (row.status === "active" && row.expires_at && new Date(row.expires_at) < now) {
+      await supabase.from("org_members").update({ status: "expired" }).eq("id", row.id);
+      expiredCount++;
     }
-    return m;
-  });
-  if (changed) {
-    membersStore.set(orgId, updated);
-    saveMembers();
-    const org = organizationsStore.get(orgId);
-    if (org) {
-      org.activeMemberCount = updated.filter((m) => m.status === "active").length;
-      organizationsStore.set(orgId, org);
-      saveOrgs();
+  }
+
+  if (expiredCount > 0) {
+    const { data: updatedMembers } = await supabase.from("org_members").select("id").eq("org_id", orgId).eq("status", "active");
+    if (updatedMembers) {
+      await supabase.from("organizations").update({ active_member_count: updatedMembers.length }).eq("id", orgId);
     }
   }
 }
@@ -188,7 +279,9 @@ function issueCard(org: Organization, member: OrgMember) {
     orgId: org.id,
     orgName: org.name,
     primaryColor: org.primaryColor,
+    secondaryColor: org.secondaryColor,
     accentColor: org.accentColor,
+    logoUri: org.logoUri || null,
     customFields: member.customFieldsData,
     verificationToken: member.verificationToken,
     createdAt: new Date().toISOString(),
@@ -203,6 +296,13 @@ function paystackRequest(
 ): Promise<any> {
   return new Promise((resolve, reject) => {
     const secretKey = process.env["PAYSTACK_SECRET_KEY"] || "";
+    if (!secretKey) {
+      console.error("[PAYSTACK] CRITICAL: PAYSTACK_SECRET_KEY is not set in environment variables!");
+      reject(new Error("Paystack secret key is not configured on the server."));
+      return;
+    }
+    const keyHint = `${secretKey.slice(0, 7)}...${secretKey.slice(-4)}`;
+    console.log(`[PAYSTACK] ${method} ${path} | key=${keyHint}`);
     const data = body ? JSON.stringify(body) : undefined;
     const options = {
       hostname: "api.paystack.co",
@@ -219,17 +319,21 @@ function paystackRequest(
       let raw = "";
       res.on("data", (chunk: any) => { raw += chunk; });
       res.on("end", () => {
-        try { resolve(JSON.parse(raw)); } catch { reject(new Error("Invalid JSON response")); }
+        console.log(`[PAYSTACK] ${method} ${path} → HTTP ${res.statusCode} | body=${raw.slice(0, 300)}`);
+        try { resolve(JSON.parse(raw)); } catch { reject(new Error(`Invalid JSON response from Paystack: ${raw.slice(0, 100)}`)); }
       });
     });
-    req.on("error", reject);
+    req.on("error", (err: any) => {
+      console.error(`[PAYSTACK] Network error on ${method} ${path}:`, err.message);
+      reject(err);
+    });
     if (data) req.write(data);
     req.end();
   });
 }
 
 // Helper to record a paid member transaction
-function processSuccessfulMemberPayment(
+async function processSuccessfulMemberPayment(
   org: Organization,
   reference: string,
   memberName: string,
@@ -237,11 +341,12 @@ function processSuccessfulMemberPayment(
   customFieldsData: Record<string, string> = {},
   photoUri?: string | null,
   amountPaid?: number
-): { member: OrgMember; issuedCard: any } {
-  const existingMembers = membersStore.get(org.id) || [];
-  const found = existingMembers.find((m) => m.paystackReference === reference);
-  if (found) {
-    return { member: found, issuedCard: { id: found.cardId, ...issueCard(org, found) } };
+): Promise<{ member: OrgMember; issuedCard: any }> {
+  
+  const { data: existing } = await supabase.from("org_members").select("*").eq("org_id", org.id).eq("paystack_reference", reference).single();
+  if (existing) {
+    const m = mapMemberFromDB(existing);
+    return { member: m, issuedCard: { id: m.cardId, ...issueCard(org, m) } };
   }
 
   const memberId = `mem_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -272,13 +377,10 @@ function processSuccessfulMemberPayment(
   org.totalGrossRevenue = (org.totalGrossRevenue || 0) + gross;
   org.platformFeeCollected = (org.platformFeeCollected || 0) + platformFee;
   org.netBalance = (org.netBalance || 0) + netAmount;
+  org.activeMemberCount += 1;
 
-  existingMembers.push(newMember);
-  membersStore.set(org.id, existingMembers);
-  org.activeMemberCount = existingMembers.filter((m) => m.status === "active").length;
-  organizationsStore.set(org.id, org);
-  saveOrgs();
-  saveMembers();
+  await supabase.from("org_members").insert(mapMemberToDB(newMember));
+  await supabase.from("organizations").update(mapOrgToDB(org)).eq("id", org.id);
 
   return { member: newMember, issuedCard: { id: cardId, ...issueCard(org, newMember) } };
 }
@@ -288,7 +390,7 @@ function processSuccessfulMemberPayment(
 const router: Router = Router();
 
 // Create new organization
-router.post("/organizations", (req: Request, res: Response) => {
+router.post("/organizations", async (req: Request, res: Response) => {
   try {
     const {
       name,
@@ -299,7 +401,9 @@ router.post("/organizations", (req: Request, res: Response) => {
       managerEmail = "",
       managerPin = "1234",
       primaryColor = "#0F172A",
+      secondaryColor = "#1E293B",
       accentColor = "#F59E0B",
+      logoUri = "",
       badgeStyle = "holographic",
       customFields = [],
       membershipFee = 0,
@@ -313,6 +417,18 @@ router.post("/organizations", (req: Request, res: Response) => {
 
     if (!name || typeof name !== "string") {
       res.status(400).json({ error: "Organization name is required." });
+      return;
+    }
+
+    const normName = name.trim().toLowerCase();
+    // Simplified conflict check (we could do ILIKE in Postgres, but fetching all is fine for now if small)
+    const { data: existingOrgs } = await supabase.from("organizations").select("id, name");
+    const existing = existingOrgs?.find((o: any) => o.name.trim().toLowerCase() === normName);
+
+    if (existing) {
+      res.status(409).json({
+        error: `An organization named "${existing.name}" already exists. Please choose a unique name.`,
+      });
       return;
     }
 
@@ -335,7 +451,9 @@ router.post("/organizations", (req: Request, res: Response) => {
       managerEmail,
       managerPin: String(managerPin).trim() || "1234",
       primaryColor,
+      secondaryColor: secondaryColor || "#1E293B",
       accentColor,
+      logoUri: logoUri || undefined,
       badgeStyle,
       customFields,
       membershipFee: feeNum,
@@ -356,49 +474,48 @@ router.post("/organizations", (req: Request, res: Response) => {
       payoutHistory: [],
     };
 
-    organizationsStore.set(id, newOrg);
-    membersStore.set(id, []);
-    saveOrgs();
-    saveMembers();
+    const { error } = await supabase.from("organizations").insert(mapOrgToDB(newOrg));
+    if (error) throw error;
 
     res.status(201).json({ organization: newOrg });
   } catch (error) {
+    console.error(error);
     res.status(500).json({ error: "Failed to create organization" });
   }
 });
 
 // List organizations
-router.get("/organizations", (_req: Request, res: Response) => {
-  const orgs = Array.from(organizationsStore.values());
-  res.json({ organizations: orgs });
+router.get("/organizations", async (_req: Request, res: Response) => {
+  const { data, error } = await supabase.from("organizations").select("*");
+  if (error) { res.status(500).json({ error: "Failed to fetch organizations" }); return; }
+  res.json({ organizations: data.map(mapOrgFromDB) });
 });
 
 // Get organization by ID or invite code
-router.get("/organizations/:id", (req: Request, res: Response) => {
+router.get("/organizations/:id", async (req: Request, res: Response) => {
   const query = String(req.params["id"] || "");
   if (!query) { res.status(400).json({ error: "ID parameter missing" }); return; }
 
-  let org = organizationsStore.get(query);
-  if (!org) {
-    org = Array.from(organizationsStore.values()).find(
-      (o) => o.inviteCode.toUpperCase() === query.toUpperCase()
-    );
+  let { data: orgData } = await supabase.from("organizations").select("*").eq("id", query).single();
+  if (!orgData) {
+    const { data } = await supabase.from("organizations").select("*").ilike("invite_code", query).single();
+    orgData = data;
   }
 
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
-
-  res.json({ organization: org });
+  if (!orgData) { res.status(404).json({ error: "Organization not found" }); return; }
+  res.json({ organization: mapOrgFromDB(orgData) });
 });
 
 // ─── Web Smart Landing Page (For users without the app installed) ─────────────
-router.get("/join/:id", (req: Request, res: Response) => {
+router.get("/join/:id", async (req: Request, res: Response) => {
   const query = String(req.params["id"] || "");
-  let org = organizationsStore.get(query);
-  if (!org) {
-    org = Array.from(organizationsStore.values()).find(
-      (o) => o.inviteCode.toUpperCase() === query.toUpperCase()
-    );
+  
+  let { data: orgData } = await supabase.from("organizations").select("*").eq("id", query).single();
+  if (!orgData) {
+    const { data } = await supabase.from("organizations").select("*").ilike("invite_code", query).single();
+    orgData = data;
   }
+  const org = orgData ? mapOrgFromDB(orgData) : null;
 
   const orgName = org ? org.name : "Organization Digital Pass";
   const orgCategory = org ? org.category.toUpperCase() : "OFFICIAL PASS";
@@ -445,48 +562,199 @@ router.get("/join/:id", (req: Request, res: Response) => {
 // ─── Paystack: Initialize Dynamic Pro Subscription Payment ────────────────────────
 router.post("/paystack/pro-checkout", async (req: Request, res: Response) => {
   try {
-    const { email = "user@nascard.app", amount = 29 } = req.body;
-    const amountKobo = Math.round(Number(amount) * 100);
-    console.log(`💳 [SERVER PAYSTACK LOG]: Initializing Checkout for ${email}, Amount: GHS ${amount} (${amountKobo} pesewas)`);
+    const { email, billingCycle = "monthly", amount } = req.body;
+    
+    if (!email || !String(email).includes("@")) {
+      res.status(400).json({ error: "A valid user email address is required for checkout." });
+      return;
+    }
+
+    const normEmail = String(email).trim().toLowerCase();
+    const chargedAmount = amount ? Number(amount) : billingCycle === "annual" ? 228 : 29;
+    const amountKobo = Math.round(chargedAmount * 100);
+
+    const ref = `nascard_pro_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+    const apiBase = process.env["EXPO_PUBLIC_DOMAIN"] || "https://nascard-api.onrender.com";
+    const callbackUrl = `${apiBase}/api/paystack/callback?reference=${encodeURIComponent(ref)}&type=pro`;
 
     const paystackRes = await paystackRequest("POST", "/transaction/initialize", {
-      email,
+      email: normEmail,
       amount: amountKobo,
       currency: "GHS",
-      reference: `nascard_pro_${Date.now()}`,
-      callback_url: `nascard://payment/pro-success`,
+      reference: ref,
+      callback_url: callbackUrl,
       metadata: {
         type: "pro_subscription",
+        billing_cycle: billingCycle,
+        user_email: normEmail,
       },
     });
 
-    console.log(`💳 [SERVER PAYSTACK LOG]: Paystack API Response status:`, paystackRes?.status);
-
     if (paystackRes?.status && paystackRes.data?.authorization_url) {
-      console.log(`💳 [SERVER PAYSTACK LOG]: Returning Live Authorization URL: ${paystackRes.data.authorization_url}`);
       res.json({
         authorizationUrl: paystackRes.data.authorization_url,
         accessCode: paystackRes.data.access_code,
-        reference: paystackRes.data.reference,
+        reference: paystackRes.data.reference || ref,
       });
       return;
     }
 
-    const ref = `nascard_pro_${Date.now()}`;
-    console.warn(`💳 [SERVER PAYSTACK WARN]: Paystack live init unavailable, returning sandbox authorization URL`);
-    res.json({
-      authorizationUrl: `https://checkout.paystack.com/00${Math.random().toString(36).substring(2, 9)}`,
-      accessCode: `00${Math.random().toString(36).substring(2, 9)}`,
-      reference: ref,
-    });
+    res.status(503).json({ error: "Payment gateway unavailable. Please check Paystack configuration." });
   } catch (err: any) {
-    console.error(`💳 [SERVER PAYSTACK ERROR]:`, err);
-    const ref = `nascard_pro_${Date.now()}`;
-    res.json({
-      authorizationUrl: `https://checkout.paystack.com/00${Math.random().toString(36).substring(2, 9)}`,
-      accessCode: `00${Math.random().toString(36).substring(2, 9)}`,
+    res.status(500).json({ error: "Failed to initialize payment gateway." });
+  }
+});
+
+// ─── Paystack Hosted Callback Handler ───────────────────────────────────────
+router.get("/paystack/callback", (req: Request, res: Response) => {
+  const reference = String(req.query["reference"] || req.query["trxref"] || "");
+  const status = String(req.query["status"] || "success");
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment Successful — nascard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #080C16; color: #FFFFFF; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; text-align: center; }
+    .card { background: #131A2A; border: 1px solid #232E45; border-radius: 24px; padding: 36px 28px; max-width: 400px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+    .icon { width: 72px; height: 72px; background: rgba(16, 185, 129, 0.15); border: 2px solid #10B981; border-radius: 36px; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px auto; font-size: 32px; color: #10B981; }
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 10px; color: #FFFFFF; }
+    p { color: #94A3B8; font-size: 14px; line-height: 1.5; margin-bottom: 24px; }
+    .spinner { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #3B82F6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 0 auto 16px auto; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .btn { display: inline-block; background: #3B82F6; color: #FFFFFF; text-decoration: none; font-weight: 700; font-size: 15px; padding: 14px 28px; border-radius: 12px; transition: transform 0.2s; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">✓</div>
+    <h1>Payment Successful!</h1>
+    <p>Returning you automatically to your 3D nascard Wallet...</p>
+    <div class="spinner"></div>
+    <a href="nascard://payment/success?reference=${encodeURIComponent(reference)}&status=success" class="btn">📱 Open nascard App</a>
+  </div>
+  <script>
+    setTimeout(function() {
+      window.location.href = "nascard://payment/success?reference=" + encodeURIComponent("${reference}") + "&status=success";
+    }, 400);
+  </script>
+</body>
+</html>`;
+
+  res.setHeader("Content-Type", "text/html");
+  res.send(html);
+});
+
+// ─── Paystack: Initialize Org Plan Upgrade Payment ───────────────────────────
+router.post("/paystack/org-checkout", async (req: Request, res: Response) => {
+  try {
+    const { email, orgId, tier, billingCycle = "monthly", amount } = req.body;
+
+    if (!email || !String(email).includes("@")) {
+      res.status(400).json({ error: "A valid admin email address is required for checkout." });
+      return;
+    }
+    if (!orgId || !tier) {
+      res.status(400).json({ error: "orgId and tier are required." });
+      return;
+    }
+
+    const normEmail = String(email).trim().toLowerCase();
+    const chargedAmount = amount ? Number(amount) : tier === "enterprise"
+      ? (billingCycle === "yearly" ? 4790 : 499)
+      : (billingCycle === "yearly" ? 1430 : 149);
+    const amountKobo = Math.round(chargedAmount * 100);
+    const ref = `org_tier_${orgId}_${billingCycle}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const apiBase = process.env["EXPO_PUBLIC_DOMAIN"] || "https://nascard-api.onrender.com";
+    const callbackUrl = `${apiBase}/api/paystack/callback?reference=${encodeURIComponent(ref)}&orgId=${orgId}&status=success`;
+
+    const paystackRes = await paystackRequest("POST", "/transaction/initialize", {
+      email: normEmail,
+      amount: amountKobo,
+      currency: "GHS",
       reference: ref,
+      callback_url: callbackUrl,
+      metadata: {
+        type: "org_plan_upgrade",
+        org_id: orgId,
+        tier,
+        billing_cycle: billingCycle,
+        admin_email: normEmail,
+      },
     });
+
+    if (paystackRes?.status && paystackRes.data?.authorization_url) {
+      res.json({ authorizationUrl: paystackRes.data.authorization_url, reference: paystackRes.data.reference || ref });
+      return;
+    }
+    res.status(503).json({ error: "Payment gateway not available. Please check Paystack configuration." });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to initialize payment." });
+  }
+});
+
+// ─── Paystack: Verify Pro Subscription Reference Server-side ──────────────────────
+router.post("/paystack/verify-subscription", async (req: Request, res: Response) => {
+  try {
+    const { reference, email } = req.body;
+    if (!email || !String(email).trim()) {
+      res.status(400).json({ valid: false, error: "Account email address is required to verify subscription." });
+      return;
+    }
+
+    const normEmail = String(email).trim().toLowerCase();
+
+    const { data: existing } = await supabase.from("pro_subscriptions").select("*").eq("email", normEmail).single();
+    if (existing && existing.status === "active") {
+      res.json({ valid: true, isPro: true, subscription: existing });
+      return;
+    }
+
+    if (reference) {
+      try {
+        const paystackRes = await paystackRequest("GET", `/transaction/verify/${encodeURIComponent(reference)}`);
+        if (paystackRes?.status && paystackRes.data?.status === "success") {
+          const record = {
+            email: normEmail,
+            reference,
+            amount: paystackRes.data.amount / 100,
+            billing_cycle: paystackRes.data.amount >= 20000 ? "annual" : "monthly",
+            status: "active",
+            activated_at: new Date().toISOString(),
+            expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+          };
+          await supabase.from("pro_subscriptions").upsert(record);
+          res.json({ valid: true, isPro: true, subscription: record });
+          return;
+        }
+        const txStatus = paystackRes?.data?.status || "unknown";
+        res.status(402).json({ valid: false, isPro: false, error: `Payment not confirmed by Paystack (status: ${txStatus})`, paystackStatus: txStatus });
+        return;
+      } catch (e) { console.warn("[Paystack Verify Error]:", e); }
+    }
+
+    res.status(402).json({ valid: false, isPro: false, error: "Payment reference is missing or could not be verified." });
+  } catch (err: any) {
+    res.status(500).json({ valid: false, error: "Internal server error verifying subscription." });
+  }
+});
+
+// ─── Pro Subscription Access Check Endpoint ──────────────────────────────────────
+router.get("/pro/check-status", async (req: Request, res: Response) => {
+  const emailQuery = req.query.email as string;
+  if (!emailQuery || !emailQuery.trim()) { res.status(400).json({ isPro: false, error: "Email parameter is required." }); return; }
+
+  const normEmail = emailQuery.trim().toLowerCase();
+  const { data: record } = await supabase.from("pro_subscriptions").select("*").eq("email", normEmail).single();
+
+  if (record && record.status === "active") {
+    res.json({ isPro: true, subscription: record });
+  } else {
+    res.json({ isPro: false });
   }
 });
 
@@ -494,10 +762,10 @@ router.post("/paystack/pro-checkout", async (req: Request, res: Response) => {
 router.post("/organizations/:id/payment/initialize", async (req: Request, res: Response) => {
   try {
     const orgId = String(req.params["id"] || "");
-    if (!orgId) { res.status(400).json({ error: "ID parameter missing" }); return; }
-
-    const org = organizationsStore.get(orgId);
-    if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+    const { data: orgData } = await supabase.from("organizations").select("*").eq("id", orgId).single();
+    if (!orgData) { res.status(404).json({ error: "Organization not found" }); return; }
+    
+    const org = mapOrgFromDB(orgData);
 
     if (!org.membershipFee || org.membershipFee === 0) {
       res.status(400).json({ error: "This organization has no membership fee. Use the free join endpoint." });
@@ -523,10 +791,6 @@ router.post("/organizations/:id/payment/initialize", async (req: Request, res: R
         custom_fields_data: customFieldsData,
         photo_uri: photoUri || null,
         fee_interval: org.membershipFeeInterval,
-        custom_fields: [
-          { display_name: "Organization", variable_name: "org_name", value: org.name },
-          { display_name: "Member", variable_name: "member_name", value: memberName || email },
-        ],
       },
     });
 
@@ -539,39 +803,28 @@ router.post("/organizations/:id/payment/initialize", async (req: Request, res: R
       return;
     }
 
-    const ref = `nascard_${orgId}_${Date.now()}`;
-    res.json({
-      authorization_url: `https://checkout.paystack.com/00${Math.random().toString(36).substring(2, 9)}`,
-      access_code: `00${Math.random().toString(36).substring(2, 9)}`,
-      reference: ref,
-    });
+    res.status(503).json({ error: "Payment gateway unavailable." });
   } catch (error) {
-    const ref = `nascard_org_${Date.now()}`;
-    res.json({
-      authorization_url: `https://checkout.paystack.com/00${Math.random().toString(36).substring(2, 9)}`,
-      access_code: `00${Math.random().toString(36).substring(2, 9)}`,
-      reference: ref,
-    });
+    res.status(500).json({ error: "Failed to initialize payment." });
   }
 });
 
 // ─── Upgrade Organization Tier ────────────────────────────────────────────────
-router.post("/organizations/:id/upgrade", (req: Request, res: Response) => {
+router.post("/organizations/:id/upgrade", async (req: Request, res: Response) => {
   try {
     const orgId = String(req.params["id"] || "");
     const { tier, billingCycle } = req.body;
-    const org = organizationsStore.get(orgId);
-    if (!org) {
-      res.status(404).json({ error: "Organization not found" });
-      return;
-    }
+    
+    const { data: orgData } = await supabase.from("organizations").select("*").eq("id", orgId).single();
+    if (!orgData) { res.status(404).json({ error: "Organization not found" }); return; }
+    
+    const org = mapOrgFromDB(orgData);
 
     if (tier === "pro" || tier === "enterprise") {
       org.tier = tier;
       org.memberLimit = tier === "enterprise" ? 10000 : 500;
       if (billingCycle) org.billingCycle = billingCycle;
-      organizationsStore.set(orgId, org);
-      saveOrgs();
+      await supabase.from("organizations").update(mapOrgToDB(org)).eq("id", orgId);
     }
 
     res.json({ organization: org });
@@ -580,15 +833,47 @@ router.post("/organizations/:id/upgrade", (req: Request, res: Response) => {
   }
 });
 
-// ─── Paystack Webhook Listener ────────────────────────────────────────────────
+// ─── Paystack: Verify Org Plan Payment & Upgrade Tier ────────────────────────
+router.post("/paystack/verify-org-payment", async (req: Request, res: Response) => {
+  try {
+    const { reference, orgId, tier, billingCycle, email } = req.body;
+    if (!orgId || !tier) { res.status(400).json({ valid: false, error: "orgId and tier required." }); return; }
 
-router.post("/paystack/webhook", (req: Request, res: Response) => {
+    const { data: orgData } = await supabase.from("organizations").select("*").eq("id", orgId).single();
+    if (!orgData) { res.status(404).json({ valid: false, error: "Organization not found." }); return; }
+    const org = mapOrgFromDB(orgData);
+
+    let verified = false;
+    let txStatus = "unknown";
+    if (reference) {
+      try {
+        const paystackRes = await paystackRequest("GET", `/transaction/verify/${encodeURIComponent(reference)}`);
+        txStatus = paystackRes?.data?.status || "unknown";
+        if (paystackRes?.status && paystackRes.data?.status === "success") verified = true;
+      } catch (e) { console.warn("[ORG UPGRADE Paystack Verify Error]:", e); }
+    }
+
+    if (!verified) {
+      res.status(402).json({ valid: false, error: `Payment not confirmed (status: ${txStatus})`, paystackStatus: txStatus });
+      return;
+    }
+
+    org.tier = tier as "pro" | "enterprise";
+    org.memberLimit = tier === "enterprise" ? 10000 : 500;
+    if (billingCycle) org.billingCycle = billingCycle as "monthly" | "yearly";
+    await supabase.from("organizations").update(mapOrgToDB(org)).eq("id", orgId);
+
+    res.json({ valid: true, organization: org });
+  } catch (err) {
+    res.status(500).json({ valid: false, error: "Internal server error during org upgrade." });
+  }
+});
+
+// ─── Paystack Webhook Listener ────────────────────────────────────────────────
+router.post("/paystack/webhook", async (req: Request, res: Response) => {
   try {
     const secretKey = process.env["PAYSTACK_SECRET_KEY"] || "";
-    const hash = crypto
-      .createHmac("sha512", secretKey)
-      .update(JSON.stringify(req.body))
-      .digest("hex");
+    const hash = crypto.createHmac("sha512", secretKey).update(JSON.stringify(req.body)).digest("hex");
 
     if (req.headers["x-paystack-signature"] && req.headers["x-paystack-signature"] !== hash) {
       res.status(401).send("Invalid Signature");
@@ -602,18 +887,20 @@ router.post("/paystack/webhook", (req: Request, res: Response) => {
       const orgId = metadata.org_id;
       const reference = data.reference;
 
-      if (orgId && organizationsStore.has(orgId)) {
-        const org = organizationsStore.get(orgId)!;
-        const gross = data.amount / 100;
-        processSuccessfulMemberPayment(
-          org,
-          reference,
-          metadata.member_name || data.customer?.first_name || "Member",
-          metadata.member_email || data.customer?.email,
-          metadata.custom_fields_data || {},
-          metadata.photo_uri || null,
-          gross
-        );
+      if (orgId) {
+        const { data: orgData } = await supabase.from("organizations").select("*").eq("id", orgId).single();
+        if (orgData) {
+          const org = mapOrgFromDB(orgData);
+          await processSuccessfulMemberPayment(
+            org,
+            reference,
+            metadata.member_name || data.customer?.first_name || "Member",
+            metadata.member_email || data.customer?.email,
+            metadata.custom_fields_data || {},
+            metadata.photo_uri || null,
+            data.amount / 100
+          );
+        }
       }
     }
 
@@ -624,33 +911,31 @@ router.post("/paystack/webhook", (req: Request, res: Response) => {
 });
 
 // ─── Paystack: Verify payment & issue card ────────────────────────────────────
-
 router.post("/organizations/:id/payment/verify", async (req: Request, res: Response) => {
   try {
     const orgId = String(req.params["id"] || "");
     const { reference, memberName, memberEmail, customFieldsData = {}, photoUri } = req.body;
-    if (!orgId || !reference) {
-      res.status(400).json({ error: "Missing organization ID or payment reference." });
-      return;
-    }
+    if (!orgId || !reference) { res.status(400).json({ error: "Missing organization ID or payment reference." }); return; }
 
-    const org = organizationsStore.get(orgId);
-    if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+    const { data: orgData } = await supabase.from("organizations").select("*").eq("id", orgId).single();
+    if (!orgData) { res.status(404).json({ error: "Organization not found" }); return; }
+    const org = mapOrgFromDB(orgData);
 
-    const verifyRes = await paystackRequest("GET", `/transaction/verify/${reference}`).catch(() => null);
-    const isSuccess = (verifyRes?.status && verifyRes.data?.status === "success") || reference.startsWith("nascard_");
+    let verifyRes: any = null;
+    try {
+      verifyRes = await paystackRequest("GET", `/transaction/verify/${encodeURIComponent(reference)}`);
+    } catch (e: any) {}
+
+    const txStatus = verifyRes?.data?.status || "unverified";
+    const isSuccess = verifyRes?.status && txStatus === "success";
 
     if (!isSuccess) {
-      res.status(402).json({
-        error: "Payment not completed or verification failed.",
-        paystackStatus: verifyRes?.data?.status,
-      });
+      res.status(402).json({ error: `Payment not confirmed by Paystack (status: ${txStatus})`, paystackStatus: txStatus });
       return;
     }
 
     const amountPaid = (verifyRes.data?.amount || (org.membershipFee * 100)) / 100;
-
-    const { member, issuedCard } = processSuccessfulMemberPayment(
+    const { member, issuedCard } = await processSuccessfulMemberPayment(
       org,
       reference,
       memberName || verifyRes.data?.customer?.first_name || "Member",
@@ -660,54 +945,39 @@ router.post("/organizations/:id/payment/verify", async (req: Request, res: Respo
       amountPaid
     );
 
-    res.status(201).json({
-      member,
-      issuedCard,
-      organization: org,
-      amountPaid,
-    });
-  } catch (error) {
-    res.status(500).json({ error: "Payment verification error" });
+    res.status(201).json({ member, issuedCard, organization: org, amountPaid });
+  } catch (error: any) {
+    res.status(500).json({ error: "Payment verification error." });
   }
 });
 
 // ─── Member joins free org ────────────────────────────────────────────────────
-
-router.post("/organizations/:id/join", (req: Request, res: Response) => {
+router.post("/organizations/:id/join", async (req: Request, res: Response) => {
   try {
     const orgId = String(req.params["id"] || "");
-    if (!orgId) { res.status(400).json({ error: "ID parameter missing" }); return; }
-
-    const org = organizationsStore.get(orgId);
-    if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+    const { data: orgData } = await supabase.from("organizations").select("*").eq("id", orgId).single();
+    if (!orgData) { res.status(404).json({ error: "Organization not found" }); return; }
+    const org = mapOrgFromDB(orgData);
 
     if (org.membershipFee > 0) {
-      res.status(402).json({
-        error: "This organization requires payment to join.",
-        membershipFee: org.membershipFee,
-        membershipFeeInterval: org.membershipFeeInterval,
-        requiresPayment: true,
-      });
+      res.status(402).json({ error: "This organization requires payment.", requiresPayment: true });
       return;
     }
 
     const { memberName, memberEmail, customFieldsData = {}, photoUri } = req.body;
-    if (!memberName || typeof memberName !== "string") {
-      res.status(400).json({ error: "Member name is required." });
-      return;
-    }
+    if (!memberName) { res.status(400).json({ error: "Member name is required." }); return; }
 
-    const existingMembers = membersStore.get(org.id) || [];
-    const duplicate = existingMembers.find(
-      (m) =>
-        (memberEmail && m.memberEmail?.toLowerCase() === String(memberEmail).toLowerCase()) ||
-        (m.memberName.toLowerCase() === String(memberName).toLowerCase() && m.status === "active")
+    const { data: existingMembers } = await supabase.from("org_members").select("*").eq("org_id", orgId).eq("status", "active");
+    const duplicate = existingMembers?.find((m: any) =>
+      (memberEmail && m.member_email?.toLowerCase() === String(memberEmail).toLowerCase()) ||
+      (m.member_name.toLowerCase() === String(memberName).toLowerCase())
     );
 
     if (duplicate) {
+      const dupMember = mapMemberFromDB(duplicate);
       res.status(200).json({
-        member: duplicate,
-        issuedCard: { id: duplicate.cardId, ...issueCard(org, duplicate) },
+        member: dupMember,
+        issuedCard: { id: dupMember.cardId, ...issueCard(org, dupMember) },
         organization: org,
         alreadyMember: true,
       });
@@ -732,12 +1002,9 @@ router.post("/organizations/:id/join", (req: Request, res: Response) => {
       paymentStatus: "free",
     };
 
-    existingMembers.push(newMember);
-    membersStore.set(org.id, existingMembers);
-    org.activeMemberCount = existingMembers.filter((m) => m.status === "active").length;
-    organizationsStore.set(org.id, org);
-    saveOrgs();
-    saveMembers();
+    org.activeMemberCount += 1;
+    await supabase.from("org_members").insert(mapMemberToDB(newMember));
+    await supabase.from("organizations").update({ active_member_count: org.activeMemberCount }).eq("id", orgId);
 
     res.status(201).json({
       member: newMember,
@@ -750,69 +1017,90 @@ router.post("/organizations/:id/join", (req: Request, res: Response) => {
 });
 
 // ─── Manager roster ───────────────────────────────────────────────────────────
-
-router.get("/organizations/:id/members", (req: Request, res: Response) => {
+router.get("/organizations/:id/members", async (req: Request, res: Response) => {
   const orgId = String(req.params["id"] || "");
-  if (!orgId) { res.status(400).json({ error: "ID parameter missing" }); return; }
+  const { data: orgData } = await supabase.from("organizations").select("*").eq("id", orgId).single();
+  if (!orgData) { res.status(404).json({ error: "Organization not found" }); return; }
 
-  const org = organizationsStore.get(orgId);
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+  await autoExpireMembers(orgId);
 
-  autoExpireMembers(orgId);
-
-  const members = membersStore.get(orgId) || [];
+  const { data: membersData } = await supabase.from("org_members").select("*").eq("org_id", orgId);
+  const members = (membersData || []).map(mapMemberFromDB);
+  
   const activeCount = members.filter((m) => m.status === "active").length;
   const expiredCount = members.filter((m) => m.status === "expired").length;
   const revokedCount = members.filter((m) => m.status === "revoked").length;
 
   res.json({
-    organization: org,
+    organization: mapOrgFromDB(orgData),
     members,
     stats: { total: members.length, active: activeCount, expired: expiredCount, revoked: revokedCount },
   });
 });
 
-// ─── Verify scanned QR token (TOTP Dynamic Window + Timestamp validation) ────
+router.post("/organizations/:id/members/bulk", async (req: Request, res: Response) => {
+  try {
+    const orgId = String(req.params["id"] || "");
+    const { data: orgData } = await supabase.from("organizations").select("*").eq("id", orgId).single();
+    if (!orgData) { res.status(404).json({ error: "Organization not found" }); return; }
 
-router.post("/organizations/:id/verify", (req: Request, res: Response) => {
+    const incoming: OrgMember[] = Array.isArray(req.body.members) ? req.body.members : [];
+    if (incoming.length === 0) { res.status(400).json({ error: "No members provided." }); return; }
+
+    const records = incoming.map(m => mapMemberToDB({
+      ...m,
+      orgId,
+      verificationToken: m.verificationToken || generateSecureToken(),
+      joinedAt: m.joinedAt || new Date().toISOString(),
+      status: m.status || "active",
+    }));
+
+    await supabase.from("org_members").upsert(records);
+    const { count } = await supabase.from("org_members").select("*", { count: "exact" }).eq("org_id", orgId).eq("status", "active");
+    
+    const org = mapOrgFromDB(orgData);
+    org.activeMemberCount = count || 0;
+    await supabase.from("organizations").update({ active_member_count: count }).eq("id", orgId);
+
+    res.json({ success: true, importedCount: incoming.length, organization: org });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to process bulk import." });
+  }
+});
+
+// ─── Verify scanned QR token ──────────────────────────────────────────────────
+router.post("/organizations/:id/verify", async (req: Request, res: Response) => {
   try {
     const orgId = String(req.params["id"] || "");
     const { token } = req.body;
+    if (!token) { res.status(400).json({ error: "Verification token required." }); return; }
 
-    if (!token) { res.status(400).json({ error: "Verification token is required." }); return; }
-
-    autoExpireMembers(orgId);
-
-    // Dynamic TOTP timestamp parse (token syntax: vtoken_orgId_memId_timestamp or base_token)
+    await autoExpireMembers(orgId);
     const tokenBase = token.split(":")[0] || token;
 
-    let matchedMember: OrgMember | undefined;
-    let matchedOrg: Organization | undefined;
-
-    if (orgId && organizationsStore.has(orgId)) {
-      const members = membersStore.get(orgId) || [];
-      matchedMember = members.find((m) => m.verificationToken === tokenBase || tokenBase.includes(m.id));
-      if (matchedMember) matchedOrg = organizationsStore.get(orgId);
+    let memberData;
+    if (orgId) {
+      const { data } = await supabase.from("org_members").select("*").eq("org_id", orgId).or(`verification_token.eq.${tokenBase},id.ilike.%${tokenBase}%`).single();
+      memberData = data;
     } else {
-      for (const [oId, members] of membersStore.entries()) {
-        matchedMember = members.find((m) => m.verificationToken === tokenBase || tokenBase.includes(m.id));
-        if (matchedMember) { matchedOrg = organizationsStore.get(oId); break; }
-      }
+      const { data } = await supabase.from("org_members").select("*").or(`verification_token.eq.${tokenBase},id.ilike.%${tokenBase}%`).single();
+      memberData = data;
     }
 
-    if (!matchedMember || !matchedOrg) {
-      res.json({ valid: false, reason: "UNKNOWN_TOKEN", message: "No membership record found for this nascard pass." });
+    if (!memberData) {
+      res.json({ valid: false, reason: "UNKNOWN_TOKEN", message: "No record found." });
       return;
     }
+
+    const { data: orgData } = await supabase.from("organizations").select("*").eq("id", memberData.org_id).single();
+    const matchedMember = mapMemberFromDB(memberData);
+    const matchedOrg = mapOrgFromDB(orgData);
 
     if (matchedMember.status !== "active") {
       res.json({
         valid: false,
         reason: matchedMember.status.toUpperCase(),
-        message:
-          matchedMember.status === "expired"
-            ? "This nascard membership pass has expired. Please renew to regain access."
-            : "This membership has been revoked by the organization.",
+        message: matchedMember.status === "expired" ? "Expired." : "Revoked.",
         member: matchedMember,
         organization: matchedOrg,
       });
@@ -820,96 +1108,58 @@ router.post("/organizations/:id/verify", (req: Request, res: Response) => {
     }
 
     if (matchedMember.expiresAt && new Date(matchedMember.expiresAt) < new Date()) {
+      await supabase.from("org_members").update({ status: "expired" }).eq("id", matchedMember.id);
       res.json({
         valid: false,
         reason: "EXPIRED",
-        message: "This nascard membership pass has expired.",
+        message: "Pass expired.",
         member: { ...matchedMember, status: "expired" },
         organization: matchedOrg,
       });
       return;
     }
 
-    res.json({
-      valid: true,
-      member: matchedMember,
-      organization: matchedOrg,
-      verifiedAt: new Date().toISOString(),
-      expiresAt: matchedMember.expiresAt || null,
-    });
+    res.json({ valid: true, member: matchedMember, organization: matchedOrg, verifiedAt: new Date().toISOString() });
   } catch {
     res.status(500).json({ error: "Verification error" });
   }
 });
 
 // ─── Revoke member ────────────────────────────────────────────────────────────
-
-router.delete("/organizations/:id/members/:memberId", (req: Request, res: Response) => {
+router.delete("/organizations/:id/members/:memberId", async (req: Request, res: Response) => {
   const orgId = String(req.params["id"] || "");
   const memberId = String(req.params["memberId"] || "");
-  if (!orgId || !memberId) { res.status(400).json({ error: "Missing parameters" }); return; }
+  
+  await supabase.from("org_members").update({ status: "revoked" }).eq("id", memberId).eq("org_id", orgId);
+  const { count } = await supabase.from("org_members").select("*", { count: "exact" }).eq("org_id", orgId).eq("status", "active");
+  await supabase.from("organizations").update({ active_member_count: count }).eq("id", orgId);
 
-  const members = membersStore.get(orgId);
-  if (!members) { res.status(404).json({ error: "Organization not found" }); return; }
-
-  const idx = members.findIndex((m) => m.id === memberId);
-  if (idx !== -1 && members[idx]) {
-    members[idx] = { ...members[idx]!, status: "revoked" };
-  }
-
-  const org = organizationsStore.get(orgId);
-  if (org) {
-    org.activeMemberCount = members.filter((m) => m.status === "active").length;
-    organizationsStore.set(orgId, org);
-    saveOrgs();
-  }
-  membersStore.set(orgId, members);
-  saveMembers();
-
-  res.json({ success: true, message: "Member revoked successfully." });
+  res.json({ success: true, message: "Member revoked." });
 });
 
 // ─── Live Paystack MoMo & Ghana Bank Payout Transfer API ───────────────────────
-
 router.post("/organizations/:id/withdraw", async (req: Request, res: Response) => {
   try {
     const orgId = String(req.params["id"] || "");
-    if (!orgId) { res.status(400).json({ error: "Organization ID is required." }); return; }
-
-    const org = organizationsStore.get(orgId);
-    if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+    const { data: orgData } = await supabase.from("organizations").select("*").eq("id", orgId).single();
+    if (!orgData) { res.status(404).json({ error: "Organization not found" }); return; }
+    const org = mapOrgFromDB(orgData);
 
     const { amount, bankCode, bankName, accountNumber, accountName, managerPin } = req.body;
     const withdrawAmount = Number(amount);
 
-    // Verify Manager Security PIN if configured
     if (org.managerPin && managerPin && String(org.managerPin) !== String(managerPin)) {
-      res.status(403).json({ error: "Invalid Manager Security PIN." });
-      return;
-    }
-
-    if (!withdrawAmount || withdrawAmount <= 0) {
-      res.status(400).json({ error: "Please enter a valid withdrawal amount greater than 0." });
-      return;
+      res.status(403).json({ error: "Invalid Manager PIN." }); return;
     }
 
     const currentNetBalance = org.netBalance || 0;
     if (withdrawAmount > currentNetBalance) {
-      res.status(400).json({
-        error: `Insufficient net balance. Available for withdrawal: GH₵${currentNetBalance.toLocaleString()}`,
-      });
-      return;
-    }
-
-    if (!accountNumber || !bankName) {
-      res.status(400).json({ error: "Destination account (MoMo or Bank) and phone/account number are required." });
-      return;
+      res.status(400).json({ error: "Insufficient balance." }); return;
     }
 
     let transferCode = `TRF-${Date.now()}`;
     const isMoMo = ["MTN", "VODAFONE", "AIRTELTIGO"].includes(bankCode);
 
-    // Live Paystack Transfer Recipient Creation
     try {
       const recipientRes = await paystackRequest("POST", "/transferrecipient", {
         type: isMoMo ? "mobile_money" : "ghipss",
@@ -920,20 +1170,15 @@ router.post("/organizations/:id/withdraw", async (req: Request, res: Response) =
       });
 
       if (recipientRes.status && recipientRes.data?.recipient_code) {
-        const recipientCode = recipientRes.data.recipient_code;
         const transferRes = await paystackRequest("POST", "/transfer", {
           source: "balance",
           amount: Math.round(withdrawAmount * 100),
-          recipient: recipientCode,
-          reason: `nascard Manager Revenue Payout for ${org.name}`,
+          recipient: recipientRes.data.recipient_code,
+          reason: `Payout for ${org.name}`,
         });
-        if (transferRes.status && transferRes.data?.transfer_code) {
-          transferCode = transferRes.data.transfer_code;
-        }
+        if (transferRes.status && transferRes.data?.transfer_code) transferCode = transferRes.data.transfer_code;
       }
-    } catch (paystackErr) {
-      console.warn("Paystack Transfer API call note (using sandbox/ledger recording):", paystackErr);
-    }
+    } catch (paystackErr) { console.warn("Paystack Transfer err", paystackErr); }
 
     const payoutRecord: OrganizationPayoutRecord = {
       id: `payout_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -949,23 +1194,12 @@ router.post("/organizations/:id/withdraw", async (req: Request, res: Response) =
 
     org.netBalance = currentNetBalance - withdrawAmount;
     org.totalWithdrawn = (org.totalWithdrawn || 0) + withdrawAmount;
-    org.payoutBankDetails = {
-      bankCode: bankCode || "",
-      bankName,
-      accountNumber,
-      accountName: accountName || org.managerName || "Account Holder",
-    };
+    org.payoutBankDetails = { bankCode: bankCode || "", bankName, accountNumber, accountName: accountName || org.managerName };
     org.payoutHistory = [payoutRecord, ...(org.payoutHistory || [])];
 
-    organizationsStore.set(orgId, org);
-    saveOrgs();
+    await supabase.from("organizations").update(mapOrgToDB(org)).eq("id", orgId);
 
-    res.json({
-      success: true,
-      message: `Successfully transferred GH₵${withdrawAmount.toLocaleString()} to ${bankName} (${accountNumber}).`,
-      organization: org,
-      payout: payoutRecord,
-    });
+    res.json({ success: true, message: "Transferred successfully.", organization: org, payout: payoutRecord });
   } catch (error) {
     res.status(500).json({ error: "Failed to process payout request." });
   }

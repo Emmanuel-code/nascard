@@ -1,0 +1,4 @@
+# Exclude root pnpm workspace files from EAS upload
+# This prevents EAS from treating the upload as a pnpm monorepo
+pnpm-lock.yaml
+pnpm-workspace.yaml

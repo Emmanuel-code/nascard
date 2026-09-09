@@ -30,14 +30,20 @@ export default function NotificationsScreen() {
   const { profile, updateProfile } = useProfile();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
-  const expiring30 = getExpiringCards(30);
-  const expiring7 = getExpiringCards(7);
-  const expired = getExpiringCards(-1).filter((c) => getDaysUntilExpiry(c.expiryDate) < 0);
+  const expiredCards = cards.filter((c) => getDaysUntilExpiry(c.expiryDate) <= 0);
+  const expiring7 = cards.filter((c) => {
+    const days = getDaysUntilExpiry(c.expiryDate);
+    return days > 0 && days <= 7;
+  });
+  const expiring30 = cards.filter((c) => {
+    const days = getDaysUntilExpiry(c.expiryDate);
+    return days > 7 && days <= 30;
+  });
 
   const sections = [
-    { title: 'Expired', cards: expired.filter(c => getDaysUntilExpiry(c.expiryDate) < 0), color: colors.expired },
-    { title: 'Expiring this week', cards: expiring7.filter(c => getDaysUntilExpiry(c.expiryDate) >= 0), color: colors.warning },
-    { title: 'Expiring this month', cards: expiring30.filter(c => getDaysUntilExpiry(c.expiryDate) >= 7), color: colors.foreground },
+    { title: 'Expired', cards: expiredCards, color: colors.expired },
+    { title: 'Expiring this week', cards: expiring7, color: colors.warning },
+    { title: 'Expiring this month', cards: expiring30, color: colors.foreground },
   ].filter((s) => s.cards.length > 0);
 
   const handleToggleNotifications = async (val: boolean) => {

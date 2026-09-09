@@ -1,17 +1,20 @@
 {
   "expo": {
-    "name": "nascard",
-    "slug": "nascard",
-    "version": "1.0.0",
+    "name": "nascard Wallet",
+    "slug": "septnova",
+    "version": "2.6.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "nascard",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.nascard.app"
     },
     "android": {
       "package": "com.nascard.app",
+      "versionCode": 17,
+      "softwareKeyboardLayoutMode": "pan",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -38,12 +41,21 @@
         }
       ],
       "expo-font",
+      "expo-brightness",
       "expo-web-browser",
       [
         "expo-image-picker",
         {
           "photosPermission": "nascard needs access to your photos to capture card images.",
           "cameraPermission": "nascard needs camera access to scan and photograph your cards."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
         }
       ]
     ],
@@ -53,8 +65,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "cfcc07cf-031e-4f30-bae5-a0418b27cce6"
+        "projectId": "7150ee1e-f0b5-4db0-a016-49d8106d6fd9"
       }
-    }
+    },
+    "owner": "septnovas-team"
   }
 }

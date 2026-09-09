@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
@@ -22,14 +23,18 @@ export default function PaymentScreen() {
     reference,
     memberName,
     memberEmail,
+    photoUri,
     customFieldsData: rawFields,
+    orgTier,
   } = useLocalSearchParams<{
     orgId: string;
     authorizationUrl: string;
     reference: string;
     memberName: string;
     memberEmail: string;
+    photoUri: string;
     customFieldsData: string;
+    orgTier: string;
   }>();
 
   const colors = useColors();
@@ -41,106 +46,289 @@ export default function PaymentScreen() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [paymentDone, setPaymentDone] = useState(false);
   const [error, setError] = useState('');
+  const [webViewError, setWebViewError] = useState('');
+  const [webViewLoading, setWebViewLoading] = useState(true);
   const verifyCalledRef = useRef(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Warm up the Render server the moment the payment screen mounts ──────────
+  // Render free-tier spins down after inactivity. By pinging it as soon as
+  // the user sees the Paystack WebView, we give the server its 50-second
+  // cold-start buffer before they finish paying and tap "Verify Now".
+  React.useEffect(() => {
+    const apiBase = process.env.EXPO_PUBLIC_DOMAIN || 'https://nascard-api.onrender.com';
+    const controller = new AbortController();
+    fetch(`${apiBase}/healthz`, { signal: controller.signal })
+      .then(() => console.log('✅ [RENDER WARM-UP]: Server is awake and ready.'))
+      .catch(() => console.log('⏳ [RENDER WARM-UP]: Server is waking up in background...'));
+    return () => controller.abort();
+  }, []);
+
+  // 30-second WebView timeout & background auto-verify poll
+  React.useEffect(() => {
+    if (authorizationUrl && !paymentDone) {
+      timeoutRef.current = setTimeout(() => {
+        if (webViewLoading) {
+          setWebViewError('Paystack is taking too long to load. Please check your connection and try again.');
+        }
+      }, 30000);
+
+      // Background auto-verify poll every 4 seconds — only triggers handleVerify which owns setPaymentDone
+      const pollInterval = setInterval(async () => {
+        if (verifyCalledRef.current || isVerifying || paymentDone) return;
+        if (!reference) return;
+
+        console.log('🔄 [PAYSTACK AUTO-POLL]: Checking payment status on server for ref:', reference);
+        const apiBase = process.env.EXPO_PUBLIC_DOMAIN || 'https://nascard-api.onrender.com';
+        try {
+          if (orgId === 'pro_pass') {
+            const res = await fetch(`${apiBase}/api/paystack/verify-subscription`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reference, email: memberEmail }),
+            });
+            const text = await res.text();
+            let data: any = null;
+            try { data = JSON.parse(text); } catch {}
+            if (res.ok && data?.valid && !verifyCalledRef.current) {
+              console.log('🎉 [PAYSTACK AUTO-POLL SUCCESS]: Payment verified via background poll!');
+              verifyCalledRef.current = true;
+              clearInterval(pollInterval);
+              handleVerify(); // handleVerify owns setPaymentDone
+            }
+          } else if (orgId?.startsWith('org_plan_')) {
+            const cleanOrgId = orgId.replace('org_plan_', '');
+            const targetTier = orgTier && (orgTier === 'pro' || orgTier === 'enterprise')
+              ? orgTier
+              : reference?.includes('enterprise') ? 'enterprise' : 'pro';
+            const targetBillingCycle = reference?.includes('_yearly_') ? 'yearly' : 'monthly';
+
+            const verifyRes = await fetch(`${apiBase}/api/paystack/verify-org-payment`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                reference,
+                orgId: cleanOrgId,
+                tier: targetTier,
+                billingCycle: targetBillingCycle,
+                email: memberEmail,
+              }),
+            });
+            const verifyText = await verifyRes.text();
+            let verifyData: any = null;
+            try { verifyData = JSON.parse(verifyText); } catch {}
+            if (verifyRes.ok && verifyData?.valid && !verifyCalledRef.current) {
+              console.log('🎉 [PAYSTACK AUTO-POLL SUCCESS]: Org payment verified via background poll!');
+              verifyCalledRef.current = true;
+              clearInterval(pollInterval);
+              handleVerify(); // handleVerify owns setPaymentDone
+            }
+          }
+        } catch {}
+      }, 4000);
+
+      return () => {
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        clearInterval(pollInterval);
+      };
+    }
+    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authorizationUrl, reference, paymentDone]);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
+
+  const domSuccessRef = useRef(false);
 
   const handleNavigationChange = async (navState: WebViewNavigation) => {
     const url = navState.url || '';
     console.log('💳 [PAYSTACK WEBVIEW NAV]: Navigated to URL:', url);
 
     const isSuccess =
-      url.includes('nascard://') ||
-      url.includes('payment/success') ||
-      url.includes('pro-success') ||
+      url.includes('nascard://payment/success') ||
+      url.includes('nascard://payment/pro-success') ||
       url.includes('checkout.paystack.com/success') ||
-      url.includes('paystack.co/close') ||
-      url.includes('paystack.com/close') ||
+      url.includes('paystack.com/receipt') ||
+      url.includes('paystack.co/receipt') ||
       url.includes('status=success') ||
       url.includes('status=successful') ||
-      url.includes('success=true') ||
-      url.includes('trxref=') ||
-      url.includes('reference=');
+      url.includes('success=true');
 
-    if (isSuccess && !verifyCalledRef.current) {
-      console.log('💳 [PAYSTACK WEBVIEW NAV]: Payment success URL detected! Triggering verification...');
-      verifyCalledRef.current = true;
-      setPaymentDone(true);
-      await handleVerify();
+    if (isSuccess) {
+      domSuccessRef.current = true;
+      if (!verifyCalledRef.current) {
+        console.log('💳 [PAYSTACK WEBVIEW NAV]: Payment success URL detected! Triggering verification...');
+        verifyCalledRef.current = true;
+        handleVerify();
+      }
     }
   };
 
-  const handleVerify = async () => {
-    console.log('💳 [PAYSTACK VERIFY LOG]: Starting payment verification for orgId:', orgId, 'ref:', reference);
-    if (isVerifying) return;
+  const handleVerify = async (retryCount = 0) => {
+    console.log('💳 [PAYSTACK VERIFY LOG]: Starting payment verification for orgId:', orgId, 'ref:', reference, 'retry:', retryCount, 'domSuccess:', domSuccessRef.current);
+    if (isVerifying && retryCount === 0) return;
     setIsVerifying(true);
     setError('');
+    const apiBase = process.env.EXPO_PUBLIC_DOMAIN || 'https://nascard-api.onrender.com';
+
+    // Helper: check if we should auto-retry based on Paystack status
+    const shouldRetry = (status?: string) =>
+      status === 'processing' || status === 'pending' || status === 'queued';
+
     try {
       if (orgId === 'pro_pass') {
-        console.log('💳 [PAYSTACK VERIFY LOG]: Activating Consumer Pro Pass locally & in storage...');
-        await setProActive();
-        router.replace('/(tabs)/profile' as any);
+        let data: any = null;
+        let rawResponse = '';
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 65000); // 65s — longer than Render cold start
+          const res = await fetch(`${apiBase}/api/paystack/verify-subscription`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reference, email: memberEmail }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          rawResponse = await res.text();
+          try { data = JSON.parse(rawResponse); } catch {
+            console.warn('[PAYSTACK VERIFY]: Non-JSON response from server (possible route 404 or cold start):', rawResponse.slice(0, 200));
+          }
+        } catch (fetchErr: any) {
+          if (fetchErr?.name === 'AbortError') {
+            console.warn('[PAYSTACK VERIFY]: Request timed out after 65s.');
+          }
+          console.warn('[PAYSTACK VERIFY]: Network error:', fetchErr);
+        }
+
+        console.log('💳 [PAYSTACK VERIFY-SUB RESPONSE]:', JSON.stringify(data));
+
+        // 1. Direct Server Confirmation
+        if (data?.valid) {
+          setPaymentDone(true);
+          await setProActive(memberEmail);
+          setTimeout(() => router.replace('/(tabs)/profile' as any), 400);
+          return;
+        }
+
+        // 2. Gateway DOM / Receipt Confirmation Fallback
+        // If Paystack WebView already confirmed payment success (user got email confirmation & success screen)
+        if (domSuccessRef.current) {
+          console.log('🎉 [PAYSTACK VERIFY]: Success confirmed via Paystack gateway DOM! Activating Pro...');
+          setPaymentDone(true);
+          await setProActive(memberEmail);
+          setTimeout(() => router.replace('/(tabs)/profile' as any), 400);
+          return;
+        }
+
+        // Auto-retry up to 4× if Paystack says processing/pending
+        if (shouldRetry(data?.paystackStatus) && retryCount < 4) {
+          const delay = [2000, 3000, 5000, 8000][retryCount] ?? 5000;
+          console.log(`⏳ [PAYSTACK VERIFY]: Status is ${data.paystackStatus}, retrying in ${delay}ms (attempt ${retryCount + 1})...`);
+          setTimeout(() => handleVerify(retryCount + 1), delay);
+          return;
+        }
+
+        setPaymentDone(false);
+        setError(data?.error || 'Verification could not be confirmed. If payment was completed, please tap Verify Now to retry.');
+        verifyCalledRef.current = false;
+        setIsVerifying(false);
         return;
       }
 
       if (orgId.startsWith('org_plan_')) {
         const cleanOrgId = orgId.replace('org_plan_', '');
-        const targetTier = reference?.includes('enterprise') ? 'enterprise' : reference?.includes('pro') ? 'pro' : '';
-        console.log('💳 [PAYSTACK VERIFY LOG]: Org Plan Activated via Paystack Payment! Org ID:', cleanOrgId, 'Target Tier:', targetTier);
-        
-        const apiBase = process.env.EXPO_PUBLIC_DOMAIN || 'https://nascard-api.onrender.com';
+        const targetTier = orgTier && (orgTier === 'pro' || orgTier === 'enterprise')
+          ? orgTier
+          : reference?.includes('enterprise') ? 'enterprise' : 'pro';
+        const targetBillingCycle = reference?.includes('_yearly_') ? 'yearly' : 'monthly';
 
-        // 1. Upgrade server tier
-        if (targetTier) {
-          try {
-            await fetch(`${apiBase}/api/organizations/${cleanOrgId}/upgrade`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ tier: targetTier }),
-            });
-          } catch {}
+        let verifyData: any = null;
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 65000);
+          const verifyRes = await fetch(`${apiBase}/api/paystack/verify-org-payment`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reference, orgId: cleanOrgId, tier: targetTier, billingCycle: targetBillingCycle, email: memberEmail }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          const text = await verifyRes.text();
+          try { verifyData = JSON.parse(text); } catch {}
+        } catch (fetchErr: any) {
+          console.warn('[PAYSTACK VERIFY ORG]: Network error:', fetchErr);
         }
 
-        // 2. Fetch fresh org details & register/update in managedOrgs
-        const rawOrgs = await AsyncStorage.getItem('@nascard:managed_orgs');
-        let list = rawOrgs ? JSON.parse(rawOrgs) : [];
-        try {
-          const resp = await fetch(`${apiBase}/api/organizations/${cleanOrgId}`);
-          if (resp.ok) {
-            const data = await resp.json();
-            if (data.organization) {
-              const idx = list.findIndex((o: any) => o.id === cleanOrgId);
-              if (idx >= 0) {
-                list[idx] = data.organization;
-              } else {
-                list.push(data.organization);
-              }
-              await AsyncStorage.setItem('@nascard:managed_orgs', JSON.stringify(list));
-            }
-          }
-        } catch {}
+        console.log('💳 [PAYSTACK VERIFY-ORG RESPONSE]:', JSON.stringify(verifyData));
 
-        router.replace(`/org/manage/${cleanOrgId}` as any);
+        if (verifyData?.valid || domSuccessRef.current) {
+          const rawOrgs = await AsyncStorage.getItem('@nascard:managed_orgs');
+          let list = rawOrgs ? JSON.parse(rawOrgs) : [];
+          const idx = list.findIndex((o: any) => o.id === cleanOrgId);
+          if (verifyData?.organization) {
+            if (idx >= 0) list[idx] = verifyData.organization;
+            else list.push(verifyData.organization);
+          } else if (idx >= 0) {
+            list[idx] = {
+              ...list[idx],
+              tier: targetTier,
+              memberLimit: targetTier === 'enterprise' ? 10000 : 500,
+              billingCycle: targetBillingCycle,
+            };
+          }
+          await AsyncStorage.setItem('@nascard:managed_orgs', JSON.stringify(list));
+          setPaymentDone(true);
+          setTimeout(() => router.replace(`/org/manage/${cleanOrgId}` as any), 400);
+          return;
+        }
+
+        // Auto-retry for processing/pending
+        if (shouldRetry(verifyData?.paystackStatus) && retryCount < 4) {
+          const delay = [2000, 3000, 5000, 8000][retryCount] ?? 5000;
+          console.log(`⏳ [PAYSTACK VERIFY-ORG]: Status is ${verifyData.paystackStatus}, retrying in ${delay}ms...`);
+          setTimeout(() => handleVerify(retryCount + 1), delay);
+          return;
+        }
+
+        setPaymentDone(false);
+        setError(verifyData?.error || 'Org payment verification failed. Please try again.');
+        verifyCalledRef.current = false;
+        setIsVerifying(false);
         return;
       }
 
+      // Org membership join payment
       const fields = rawFields ? JSON.parse(rawFields) : {};
       const result = await verifyPaymentAndJoin(orgId || '', reference || '', {
         memberName: memberName || '',
         memberEmail: memberEmail || '',
+        photoUri: photoUri || null,
         customFieldsData: fields,
       });
 
-      console.log('💳 [PAYSTACK VERIFY LOG]: Member pass issued successfully, card ID:', result.card.id);
-      router.replace(`/card/${result.card.id}` as any);
+      setPaymentDone(true);
+      setTimeout(() => {
+        router.replace(result?.card?.id ? `/card/${result.card.id}` as any : '/(tabs)' as any);
+      }, 400);
     } catch (e: any) {
-      console.error('💳 [PAYSTACK VERIFY ERROR]:', e);
-      setError(e?.message || 'Payment verification failed. Please contact support.');
+      const errMsg: string = e?.message || '';
+      console.error('💳 [PAYSTACK VERIFY ERROR]:', errMsg);
+
+      // Auto-retry on network failure or processing status
+      if ((errMsg.toLowerCase().includes('processing') || errMsg.toLowerCase().includes('pending') || errMsg.toLowerCase().includes('network')) && retryCount < 3) {
+        const delay = [2500, 4000, 7000][retryCount] ?? 4000;
+        console.log(`⏳ [PAYSTACK VERIFY]: Retrying after error in ${delay}ms...`);
+        setTimeout(() => handleVerify(retryCount + 1), delay);
+        return;
+      }
+
+      setPaymentDone(false);
+      setError(errMsg || 'Payment verification failed. Please tap Verify Now to try again.');
       verifyCalledRef.current = false;
-    } finally {
       setIsVerifying(false);
     }
   };
+
 
   // Web platform fallback (no WebView available)
   if (Platform.OS === 'web') {
@@ -158,27 +346,17 @@ export default function PaymentScreen() {
           <Ionicons name="card" size={48} color={colors.primary} />
           <Text style={[styles.webFallbackTitle, { color: colors.foreground }]}>Paystack Checkout</Text>
           <Text style={[styles.webFallbackSub, { color: colors.mutedForeground }]}>
-            On mobile, you'll see the full Paystack payment form here.
-            {'\n\n'}For web testing, tap "Simulate Payment" below.
+            Paystack payment is only available on the mobile app.{"\n\n"}Please open nascard on your Android or iOS device to complete this payment.
           </Text>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
           <TouchableOpacity
-            style={[styles.verifyBtn, { backgroundColor: colors.primary }]}
-            onPress={handleVerify}
-            disabled={isVerifying}
+            style={[styles.verifyBtn, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
+            onPress={() => router.back()}
           >
-            {isVerifying ? (
-              <ActivityIndicator color={colors.primaryForeground} />
-            ) : (
-              <>
-                <Ionicons name="checkmark-circle" size={20} color={colors.primaryForeground} />
-                <Text style={[styles.verifyBtnText, { color: colors.primaryForeground }]}>
-                  Simulate Successful Payment
-                </Text>
-              </>
-            )}
+            <Ionicons name="arrow-back" size={20} color={colors.foreground} />
+            <Text style={[styles.verifyBtnText, { color: colors.foreground }]}>Go Back</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -194,17 +372,10 @@ export default function PaymentScreen() {
         </TouchableOpacity>
         <Text style={[styles.topTitle, { color: colors.foreground }]}>Paystack Checkout</Text>
         <TouchableOpacity
-          onPress={handleVerify}
-          style={{
-            backgroundColor: colors.primary + '18',
-            paddingHorizontal: 12,
-            paddingVertical: 6,
-            borderRadius: 8,
-            borderWidth: 1,
-            borderColor: colors.primary + '44',
-          }}
+          onPress={() => router.back()}
+          style={{ backgroundColor: colors.secondary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}
         >
-          <Text style={{ fontSize: 12, fontFamily: 'Inter_700Bold', color: colors.primary }}>Done ✓</Text>
+          <Text style={{ color: colors.foreground, fontSize: 12, fontFamily: 'Inter_600SemiBold' }}>Cancel</Text>
         </TouchableOpacity>
       </View>
 
@@ -213,7 +384,7 @@ export default function PaymentScreen() {
         <View style={styles.verifyingOverlay}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={[styles.verifyingText, { color: colors.foreground }]}>
-            {isVerifying ? 'Verifying payment & issuing pass...' : 'Payment complete!'}
+            {paymentDone ? 'Payment confirmed! Redirecting...' : 'Verifying transaction with Paystack...'}
           </Text>
         </View>
       )}
@@ -227,46 +398,165 @@ export default function PaymentScreen() {
             style={[styles.verifyBtn, { backgroundColor: colors.primary }]}
             onPress={() => {
               verifyCalledRef.current = false;
-              handleVerify();
+              setError('');
+              setPaymentDone(false);
+              setIsVerifying(false);
             }}
           >
-            <Text style={[styles.verifyBtnText, { color: colors.primaryForeground }]}>Retry Verification</Text>
+            <Ionicons name="refresh" size={18} color={colors.primaryForeground} />
+            <Text style={[styles.verifyBtnText, { color: colors.primaryForeground }]}>Try Again</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.verifyBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={18} color={colors.foreground} />
+            <Text style={[styles.verifyBtnText, { color: colors.foreground }]}>Go Back</Text>
           </TouchableOpacity>
         </View>
       ) : null}
 
       {/* Paystack WebView */}
       {!paymentDone && !error && authorizationUrl ? (
-        <WebView
-          source={{ uri: authorizationUrl }}
-          onNavigationStateChange={handleNavigationChange}
-          startInLoadingState
-          renderLoading={() => (
-            <View style={styles.webviewLoading}>
-              <ActivityIndicator size="large" color={colors.primary} />
-              <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
-                Loading Paystack Mobile Money & Card Gateway...
-              </Text>
+        <>
+          {webViewError ? (
+            <View style={styles.webFallbackContainer}>
+              <Ionicons name="cloud-offline" size={48} color={colors.mutedForeground} />
+              <Text style={[styles.webFallbackTitle, { color: colors.foreground }]}>Connection Error</Text>
+              <Text style={[styles.webFallbackSub, { color: colors.mutedForeground }]}>{webViewError}</Text>
+              <TouchableOpacity
+                style={[styles.verifyBtn, { backgroundColor: colors.primary }]}
+                onPress={() => { setWebViewError(''); setWebViewLoading(true); }}
+              >
+                <Ionicons name="refresh" size={18} color={colors.primaryForeground} />
+                <Text style={[styles.verifyBtnText, { color: colors.primaryForeground }]}>Retry</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.verifyBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}
+                onPress={() => router.back()}
+              >
+                <Ionicons name="arrow-back" size={18} color={colors.foreground} />
+                <Text style={[styles.verifyBtnText, { color: colors.foreground }]}>Go Back</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={{ flex: 1 }}>
+              <WebView
+                source={{ uri: authorizationUrl }}
+                onNavigationStateChange={handleNavigationChange}
+                injectedJavaScript={`
+                  (function() {
+                    function checkSuccess() {
+                      var text = document.body ? document.body.innerText || '' : '';
+                      if (text.indexOf('Successful') !== -1 || text.indexOf('Payment Successful') !== -1 || text.indexOf('Transaction Successful') !== -1) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PAYSTACK_SUCCESS' }));
+                      }
+                    }
+                    setInterval(checkSuccess, 800);
+                  })();
+                  true;
+                `}
+                onMessage={(event) => {
+                  try {
+                    const data = JSON.parse(event.nativeEvent.data);
+                    if (data?.type === 'PAYSTACK_SUCCESS') {
+                      domSuccessRef.current = true;
+                      if (!verifyCalledRef.current) {
+                        console.log('💳 [PAYSTACK DOM DETECTED SUCCESS]: Auto-triggering verification...');
+                        verifyCalledRef.current = true;
+                        handleVerify();
+                      }
+                    }
+                  } catch {}
+                }}
+                onShouldStartLoadWithRequest={(request) => {
+                  const url = request.url || '';
+                  if (
+                    url.includes('nascard://') ||
+                    url.includes('status=success') ||
+                    url.includes('status=successful') ||
+                    url.includes('/paystack/callback') ||
+                    url.includes('checkout.paystack.com/success')
+                  ) {
+                    domSuccessRef.current = true;
+                    if (!verifyCalledRef.current) {
+                      verifyCalledRef.current = true;
+                      handleVerify();
+                    }
+                    return false;
+                  }
+                  return true;
+                }}
+                onLoadStart={() => setWebViewLoading(true)}
+                onLoadEnd={() => {
+                  setWebViewLoading(false);
+                  if (timeoutRef.current) clearTimeout(timeoutRef.current);
+                }}
+                onError={(e) => setWebViewError(e.nativeEvent.description || 'Failed to load Paystack payment page.')}
+                onHttpError={(e) => {
+                  if (e.nativeEvent.statusCode >= 500) {
+                    setWebViewError(`Paystack returned an error (${e.nativeEvent.statusCode}). Please try again later.`);
+                  }
+                }}
+                startInLoadingState
+                renderLoading={() => (
+                  <View style={styles.webviewLoading}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
+                      Loading Paystack Mobile Money & Card Gateway...
+                    </Text>
+                  </View>
+                )}
+                style={{ flex: 1 }}
+              />
+
+              {/* Bottom Sticky Action Banner */}
+              <TouchableOpacity
+                style={{
+                  backgroundColor: isVerifying ? colors.secondary : colors.primary,
+                  paddingVertical: 14,
+                  paddingHorizontal: 20,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+                disabled={isVerifying}
+                onPress={() => {
+                  handleVerify();
+                }}
+              >
+                {isVerifying ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <Ionicons name="shield-checkmark-outline" size={20} color={colors.primaryForeground} />
+                )}
+                <Text
+                  style={{
+                    color: isVerifying ? colors.foreground : colors.primaryForeground,
+                    fontSize: 15,
+                    fontFamily: 'Inter_700Bold',
+                  }}
+                >
+                  {isVerifying ? 'Checking with Paystack...' : "I've Completed Payment · Verify Now"}
+                </Text>
+              </TouchableOpacity>
             </View>
           )}
-          style={{ flex: 1 }}
-        />
+        </>
       ) : !paymentDone && !error ? (
         <View style={styles.webFallbackContainer}>
-          <Ionicons name="card" size={48} color={colors.primary} />
-          <Text style={[styles.webFallbackTitle, { color: colors.foreground }]}>Paystack Payment Gateway</Text>
+          <Ionicons name="alert-circle-outline" size={48} color={"#EF4444"} />
+          <Text style={[styles.webFallbackTitle, { color: colors.foreground }]}>Payment Not Initialized</Text>
           <Text style={[styles.webFallbackSub, { color: colors.mutedForeground }]}>
-            Initializing Paystack Mobile Money (MTN / Telecel / AT) & Bank Card checkout...
+            The Paystack checkout URL was not generated. Please go back and try again.
           </Text>
           <TouchableOpacity
-            style={[styles.verifyBtn, { backgroundColor: colors.primary }]}
-            onPress={handleVerify}
-            disabled={isVerifying}
+            style={[styles.verifyBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}
+            onPress={() => router.back()}
           >
-            <Ionicons name="checkmark-circle" size={20} color={colors.primaryForeground} />
-            <Text style={[styles.verifyBtnText, { color: colors.primaryForeground }]}>
-              {isVerifying ? 'Verifying Payment...' : 'Confirm & Complete Payment'}
-            </Text>
+            <Ionicons name="arrow-back" size={18} color={colors.foreground} />
+            <Text style={[styles.verifyBtnText, { color: colors.foreground }]}>Go Back</Text>
           </TouchableOpacity>
         </View>
       ) : null}

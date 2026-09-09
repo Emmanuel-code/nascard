@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -94,9 +95,15 @@ export default function MemberJoinScreen() {
         return;
       }
 
+      // Check passport photo requirement
+      if ((org.requirePhoto ?? true) && !photoUri) {
+        Alert.alert('Passport Photo Required', 'Please upload a passport photo or selfie for your digital ID pass.');
+        return;
+      }
+
       // Validate required custom fields
       for (const field of org.customFields) {
-        const fKey = field.key || field.id || field.label;
+        const fKey = field.key || (field as any).id || field.label;
         if (field.required && !customFieldsData[fKey]?.trim()) {
           Alert.alert('Required Field', `Please enter your ${field.label}.`);
           return;
@@ -115,13 +122,14 @@ export default function MemberJoinScreen() {
         }
 
         const payInit = await initializePayment(org.id, memberEmail.trim(), org.membershipFee, memberName.trim());
+        const authUrl = payInit.authorization_url || (payInit as any).authorizationUrl || '';
         setIsSubmitting(false);
 
         router.push({
           pathname: '/org/payment' as any,
           params: {
             orgId: org.id,
-            authorizationUrl: payInit.authorization_url,
+            authorizationUrl: authUrl,
             reference: payInit.reference,
             memberName: memberName.trim(),
             memberEmail: memberEmail.trim(),
@@ -133,20 +141,24 @@ export default function MemberJoinScreen() {
       }
 
       // Free org → issue card directly
-      const result = await joinOrg(org?.id || id || 'org_demo', {
+      const targetOrgId = org?.id || id || 'org_demo';
+      const result = await joinOrg(targetOrgId, {
         memberName: memberName.trim(),
         memberEmail: memberEmail.trim(),
         photoUri,
         customFieldsData,
       });
 
+      const orgName = result.organization?.name || org?.name || 'Organization';
+
       Alert.alert(
         'Pass Claimed! 🎉',
-        `Your ${result.organization.name} Pass has been added to your nascard Wallet.`,
+        `Your ${orgName} Pass has been added to your nascard Wallet.`,
         [{ text: 'View Card', onPress: () => router.replace(`/card/${result.card.id}` as any) }],
       );
-    } catch (e) {
-      Alert.alert('Error', 'Failed to join organization. Please try again.');
+    } catch (e: any) {
+      console.error('💳 [CLAIM PASS ERROR]:', e);
+      Alert.alert('Claim Notice', e?.message || 'Failed to claim pass. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -167,7 +179,10 @@ export default function MemberJoinScreen() {
   const accentColor = org?.accentColor || colors.primaryForeground;
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={[styles.root, { backgroundColor: colors.background }]}
+    >
       {/* Top Bar */}
       <View style={[styles.topBar, { paddingTop: topPad + 8, borderColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
@@ -178,7 +193,7 @@ export default function MemberJoinScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 180 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
@@ -274,14 +289,18 @@ export default function MemberJoinScreen() {
           )}
 
           <View style={styles.fieldGroup}>
-            <Text style={[styles.label, { color: colors.foreground }]}>Email Address (Optional)</Text>
+            <Text style={[styles.label, { color: colors.foreground }]}>
+              Email Address{org?.membershipFee && org.membershipFee > 0 ? ' * (Required for payment)' : ' (Optional)'}
+            </Text>
             <TextInput
               style={[styles.input, { backgroundColor: colors.secondary, color: colors.foreground, borderColor: colors.border }]}
-              placeholder="e.g. john@example.com"
+              placeholder="e.g. jimah@example.com"
               placeholderTextColor={colors.mutedForeground}
               value={memberEmail}
               onChangeText={setMemberEmail}
               keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
             />
           </View>
 
@@ -321,7 +340,7 @@ export default function MemberJoinScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

@@ -40,23 +40,48 @@ interface Props {
 export function BarcodeModal({ visible, onClose, value, format = 'qr', cardTitle }: Props) {
   const insets = useSafeAreaInsets();
   const slideAnim = useRef(new Animated.Value(0)).current;
+  const originalBrightness = useRef<number | null>(null);
 
+  // Auto-brightness boost: ramp to full when barcode is shown so scanners can read it in dim light
   useEffect(() => {
-    if (visible) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      Animated.spring(slideAnim, {
-        toValue: 1,
-        useNativeDriver: true,
-        tension: 65,
-        friction: 11,
-      }).start();
-    } else {
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
+    async function handleBrightness() {
+      if (visible) {
+        if (Platform.OS !== 'web') {
+          try {
+            const Brightness = require('expo-brightness');
+            if (Brightness?.getBrightnessAsync) {
+              const current = await Brightness.getBrightnessAsync();
+              originalBrightness.current = current;
+              await Brightness.setBrightnessAsync(1.0);
+            }
+          } catch {}
+        }
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        Animated.spring(slideAnim, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 65,
+          friction: 11,
+        }).start();
+      } else {
+        // Restore original brightness
+        if (Platform.OS !== 'web' && originalBrightness.current !== null) {
+          try {
+            const Brightness = require('expo-brightness');
+            if (Brightness?.setBrightnessAsync) {
+              await Brightness.setBrightnessAsync(originalBrightness.current);
+              originalBrightness.current = null;
+            }
+          } catch {}
+        }
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+      }
     }
+    handleBrightness();
   }, [visible, slideAnim]);
 
   const translateY = slideAnim.interpolate({

@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import * as Haptics from 'expo-haptics';
+import React, { useRef, useState } from 'react';
 import {
   Dimensions,
+  PanResponder,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -17,7 +19,6 @@ import { useColors } from '@/hooks/useColors';
 import type { Card } from '@/types/card';
 
 const { width: SCREEN_W } = Dimensions.get('window');
-const STACK_OFFSET = 60; // Offset between stacked cards when collapsed
 
 interface StackedCardDeckProps {
   cards: Card[];
@@ -27,85 +28,148 @@ interface StackedCardDeckProps {
 export function StackedCardDeck({ cards, onCardPress }: StackedCardDeckProps) {
   const colors = useColors();
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isExpanded, setIsExpanded] = useState(false);
 
   if (cards.length === 0) return null;
 
-  const activeCard = cards[activeIndex] || cards[0]!;
+  const safeActiveIndex = Math.min(Math.max(0, activeIndex), cards.length - 1);
+  const activeCard = cards[safeActiveIndex] || cards[0]!;
 
-  const handleSelectCard = (index: number) => {
-    setActiveIndex(index);
-    if (isExpanded) {
-      setIsExpanded(false);
+  const activeIndexRef = useRef(safeActiveIndex);
+  activeIndexRef.current = safeActiveIndex;
+
+  const rollTo = async (index: number) => {
+    const clamped = Math.min(Math.max(0, index), cards.length - 1);
+    if (clamped !== activeIndexRef.current) {
+      activeIndexRef.current = clamped;
+      await Haptics.selectionAsync();
+      setActiveIndex(clamped);
     }
   };
 
+  const handlePrev = () => rollTo(activeIndexRef.current - 1);
+  const handleNext = () => rollTo(activeIndexRef.current + 1);
+
+  // Gesture responder for smooth card flipping
+  const hasRolledInGestureRef = useRef(false);
+  const ROLL_THRESHOLD = 24;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) =>
+        Math.abs(gestureState.dy) > 6 || Math.abs(gestureState.dx) > 10,
+      onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+        Math.abs(gestureState.dy) > 10 || Math.abs(gestureState.dx) > 14,
+      onPanResponderGrant: () => {
+        hasRolledInGestureRef.current = false;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (!hasRolledInGestureRef.current) {
+          if (gestureState.dy <= -ROLL_THRESHOLD || gestureState.dx <= -ROLL_THRESHOLD) {
+            // Dragged Up / Left → Next card
+            hasRolledInGestureRef.current = true;
+            rollTo(activeIndexRef.current + 1);
+          } else if (gestureState.dy >= ROLL_THRESHOLD || gestureState.dx >= ROLL_THRESHOLD) {
+            // Dragged Down / Right → Prev card
+            hasRolledInGestureRef.current = true;
+            rollTo(activeIndexRef.current - 1);
+          }
+        }
+      },
+      onPanResponderRelease: () => {
+        hasRolledInGestureRef.current = false;
+      },
+      onPanResponderTerminate: () => {
+        hasRolledInGestureRef.current = false;
+      },
+    })
+  ).current;
+
   return (
     <View style={styles.container}>
-      {/* Deck Controls Bar */}
+      {/* ── Luxury Deck Header Controls ── */}
       <View style={styles.deckHeader}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Ionicons name="wallet-outline" size={16} color={colors.primary} />
-          <Text style={[styles.deckTitle, { color: colors.foreground }]}>
-            {isExpanded ? 'Wallet Card Stack (Expanded)' : `Card ${activeIndex + 1} of ${cards.length}`}
-          </Text>
+        <View style={styles.headerLeft}>
+          <View style={[styles.rollBadge, { backgroundColor: colors.primary + '18', borderColor: colors.primary + '35' }]}>
+            <Ionicons name="wallet-outline" size={15} color={colors.primary} />
+          </View>
+
+          <View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={[styles.deckTitle, { color: colors.foreground }]}>
+                Pass Vault
+              </Text>
+              <View style={[styles.countPill, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.countPillText, { color: colors.mutedForeground }]}>
+                  {safeActiveIndex + 1} / {cards.length}
+                </Text>
+              </View>
+            </View>
+            <Text style={[styles.deckSub, { color: colors.mutedForeground }]}>
+              Swipe up or down to cycle passes
+            </Text>
+          </View>
         </View>
 
         {cards.length > 1 && (
-          <TouchableOpacity
-            style={[styles.expandToggleBtn, { backgroundColor: colors.primary + '18' }]}
-            onPress={() => setIsExpanded(!isExpanded)}
-            activeOpacity={0.8}
-          >
-            <Ionicons
-              name={isExpanded ? 'contract' : 'layers-outline'}
-              size={15}
-              color={colors.primary}
-            />
-            <Text style={[styles.expandToggleText, { color: colors.primary }]}>
-              {isExpanded ? 'Collapse Deck' : 'Stack View'}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.controlsRow}>
+            {/* Prev Arrow */}
+            <TouchableOpacity
+              style={[
+                styles.navArrowBtn,
+                { backgroundColor: colors.card, borderColor: colors.border },
+                safeActiveIndex === 0 && { opacity: 0.3 },
+              ]}
+              onPress={handlePrev}
+              disabled={safeActiveIndex === 0}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="chevron-up" size={16} color={colors.foreground} />
+            </TouchableOpacity>
+
+            {/* Next Arrow */}
+            <TouchableOpacity
+              style={[
+                styles.navArrowBtn,
+                { backgroundColor: colors.card, borderColor: colors.border },
+                safeActiveIndex === cards.length - 1 && { opacity: 0.3 },
+              ]}
+              onPress={handleNext}
+              disabled={safeActiveIndex === cards.length - 1}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="chevron-down" size={16} color={colors.foreground} />
+            </TouchableOpacity>
+          </View>
         )}
       </View>
 
-      {/* ── STACK DECK VIEW ── */}
+      {/* ── LUXURY CASCADING DECK FRAME ── */}
       <View
-        style={[
-          styles.deckFrame,
-          {
-            height: isExpanded
-              ? CARD_H + (cards.length - 1) * 75 + 20
-              : CARD_H + Math.min(cards.length - 1, 3) * STACK_OFFSET + 20,
-          },
-        ]}
+        style={[styles.rollerFrame, { height: CARD_H + 48 }]}
+        {...panResponder.panHandlers}
       >
         {cards.map((card, index) => {
-          const isActive = index === activeIndex;
-          const isAhead = index < activeIndex;
-          const offsetPos = isActive
-            ? 0
-            : isExpanded
-              ? index * 75
-              : (index - activeIndex) * STACK_OFFSET;
+          const distance = index - safeActiveIndex;
+          const isActive = index === safeActiveIndex;
 
-          const zIdx = isActive ? 50 : 40 - Math.abs(index - activeIndex);
+          // Virtualization: Skip cards further than 3 away
+          if (Math.abs(distance) > 3) return null;
 
           return (
-            <AnimatedCardSlot
+            <AnimatedRollerSlot
               key={card.id}
               card={card}
-              index={index}
-              total={cards.length}
+              distance={distance}
               isActive={isActive}
-              isExpanded={isExpanded}
-              offsetPos={offsetPos}
-              zIndex={zIdx}
               onSelect={() => {
                 if (isActive) {
                   onCardPress(card);
                 } else {
-                  handleSelectCard(index);
+                  rollTo(index);
                 }
               }}
             />
@@ -113,40 +177,45 @@ export function StackedCardDeck({ cards, onCardPress }: StackedCardDeckProps) {
         })}
       </View>
 
-      {/* ── Active Card Info Strip ── */}
+      {/* ── Active Card Quick Detail Bar ── */}
       <TouchableOpacity
         style={[styles.activeInfoCard, { backgroundColor: colors.card, borderColor: colors.border }]}
         onPress={() => onCardPress(activeCard)}
-        activeOpacity={0.85}
+        activeOpacity={0.88}
+        accessibilityLabel={`Card ${activeCard.title}, ${activeCard.nameOnCard || ''}. Double tap to open details.`}
+        accessibilityRole="button"
       >
         <View style={styles.activeInfoRow}>
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={[styles.activeInfoTitle, { color: colors.foreground }]} numberOfLines={1}>
               {activeCard.title}
             </Text>
             <Text style={[styles.activeInfoSub, { color: colors.mutedForeground }]} numberOfLines={1}>
-              {activeCard.nameOnCard || activeCard.cardType.toUpperCase()} · Tap for barcode & details
+              {activeCard.nameOnCard || activeCard.cardType.toUpperCase()} · Tap to present pass & barcode
             </Text>
           </View>
           <View style={[styles.openBadge, { backgroundColor: colors.primary }]}>
-            <Text style={[styles.openBadgeText, { color: colors.primaryForeground }]}>Open Pass</Text>
+            <Text style={[styles.openBadgeText, { color: colors.primaryForeground }]}>Open</Text>
             <Ionicons name="arrow-forward" size={12} color={colors.primaryForeground} />
           </View>
         </View>
       </TouchableOpacity>
 
-      {/* Pagination Dots */}
+      {/* ── Pagination Indicator Bar ── */}
       {cards.length > 1 && (
         <View style={styles.dotsRow}>
           {cards.map((_, i) => (
             <TouchableOpacity
               key={i}
-              onPress={() => handleSelectCard(i)}
+              onPress={() => rollTo(i)}
+              accessibilityLabel={`Select card ${i + 1} of ${cards.length}`}
+              accessibilityRole="button"
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
               style={[
                 styles.dot,
                 {
-                  backgroundColor: i === activeIndex ? colors.primary : colors.border,
-                  width: i === activeIndex ? 18 : 6,
+                  backgroundColor: i === safeActiveIndex ? colors.primary : colors.border,
+                  width: i === safeActiveIndex ? 20 : 6,
                 },
               ]}
             />
@@ -157,34 +226,55 @@ export function StackedCardDeck({ cards, onCardPress }: StackedCardDeckProps) {
   );
 }
 
-function AnimatedCardSlot({
+const AnimatedRollerSlot = React.memo(function AnimatedRollerSlot({
   card,
+  distance,
   isActive,
-  isExpanded,
-  offsetPos,
-  zIndex,
   onSelect,
 }: {
   card: Card;
-  index: number;
-  total: number;
+  distance: number;
   isActive: boolean;
-  isExpanded: boolean;
-  offsetPos: number;
-  zIndex: number;
   onSelect: () => void;
 }) {
-  const translateY = useSharedValue(offsetPos);
-  const scale = useSharedValue(isActive ? 1 : 0.95);
+  // Cascading Apple-Wallet Style Geometry (No rotateX distortion on iOS)
+  let targetY = 0;
+  let targetScale = 1;
+  let zIndex = 50;
+
+  if (isActive) {
+    targetY = 0;
+    targetScale = 1;
+    zIndex = 50;
+  } else if (distance > 0) {
+    // Stepped cascading behind & below
+    targetY = Math.min(distance * 22, 50);
+    targetScale = Math.max(1 - distance * 0.045, 0.88);
+    zIndex = 50 - distance;
+  } else {
+    // Stepped cascading behind & above
+    targetY = Math.max(distance * 18, -42);
+    targetScale = Math.max(1 - Math.abs(distance) * 0.045, 0.88);
+    zIndex = 50 - Math.abs(distance);
+  }
+
+  const translateY = useSharedValue(targetY);
+  const scale = useSharedValue(targetScale);
 
   React.useEffect(() => {
-    translateY.value = withSpring(offsetPos, { tension: 70, friction: 12 });
-    scale.value = withSpring(isActive ? 1 : isExpanded ? 0.98 : 0.94, { tension: 70, friction: 12 });
-  }, [offsetPos, isActive, isExpanded]);
+    translateY.value = withSpring(targetY, { damping: 16, stiffness: 140, mass: 0.8 });
+    scale.value = withSpring(targetScale, { damping: 16, stiffness: 140, mass: 0.8 });
+  }, [targetY, targetScale]);
 
   const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }, { scale: scale.value }],
+    transform: [
+      { translateY: translateY.value },
+      { scale: scale.value },
+    ],
   }));
+
+  // Ambient natural depth shading for background cards
+  const depthShadeOpacity = isActive ? 0 : Math.min(Math.abs(distance) * 0.32, 0.6);
 
   return (
     <Animated.View
@@ -193,18 +283,32 @@ function AnimatedCardSlot({
         {
           zIndex,
           position: 'absolute',
-          top: 0,
+          top: 6,
         },
         animatedStyle,
       ]}
+      pointerEvents={isActive ? 'auto' : 'box-none'}
     >
       <WalletCard3D card={card} onPress={onSelect} isStacked />
+      {!isActive && depthShadeOpacity > 0 && (
+        <View
+          style={[
+            StyleSheet.absoluteFillObject,
+            {
+              backgroundColor: '#000000',
+              opacity: depthShadeOpacity,
+              borderRadius: 18,
+              pointerEvents: 'none',
+            },
+          ]}
+        />
+      )}
     </Animated.View>
   );
-}
+});
 
 const styles = StyleSheet.create({
-  container: { width: '100%', alignItems: 'center', marginVertical: 8 },
+  container: { width: '100%', alignItems: 'center', marginVertical: 6 },
   deckHeader: {
     width: CARD_W,
     flexDirection: 'row',
@@ -212,20 +316,50 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
-  deckTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
-  expandToggleBtn: {
+  headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    gap: 10,
   },
-  expandToggleText: { fontSize: 11, fontFamily: 'Inter_700Bold' },
-  deckFrame: {
+  rollBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deckTitle: { fontSize: 15, fontFamily: 'Inter_700Bold', letterSpacing: 0.2 },
+  countPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  countPillText: {
+    fontSize: 9.5,
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: 0.4,
+  },
+  deckSub: { fontSize: 11.5, fontFamily: 'Inter_400Regular', marginTop: 1 },
+  controlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  navArrowBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rollerFrame: {
     width: CARD_W,
     alignItems: 'center',
     position: 'relative',
+    overflow: 'visible', // Never clip shadows or rounded corners
   },
   cardSlot: {
     width: CARD_W,
@@ -233,29 +367,31 @@ const styles = StyleSheet.create({
   },
   activeInfoCard: {
     width: CARD_W,
-    padding: 14,
-    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 15,
     borderWidth: 1,
-    marginTop: 20,
+    marginTop: 10,
   },
   activeInfoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  activeInfoTitle: { fontSize: 15, fontFamily: 'Inter_700Bold' },
-  activeInfoSub: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 2 },
+  activeInfoTitle: { fontSize: 14.5, fontFamily: 'Inter_700Bold' },
+  activeInfoSub: { fontSize: 11.5, fontFamily: 'Inter_400Regular', marginTop: 1 },
   openBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 7,
   },
-  openBadgeText: { fontSize: 12, fontFamily: 'Inter_700Bold' },
+  openBadgeText: { fontSize: 11, fontFamily: 'Inter_700Bold' },
   dotsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    marginTop: 14,
+    gap: 5,
+    marginTop: 10,
   },
-  dot: { height: 6, borderRadius: 3 },
+  dot: { height: 4.5, borderRadius: 3 },
 });
+

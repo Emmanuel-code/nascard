@@ -17,10 +17,11 @@ interface Props {
   subtitle?: string;
   onComplete: (pin: string) => void;
   onCancel?: () => void;
+  onBiometricPress?: () => void;
   error?: string | null;
 }
 
-export function PinPad({ title, subtitle, onComplete, onCancel, error }: Props) {
+export function PinPad({ title, subtitle, onComplete, onCancel, onBiometricPress, error }: Props) {
   const colors = useColors();
   const [digits, setDigits] = useState<string[]>([]);
 
@@ -31,11 +32,13 @@ export function PinPad({ title, subtitle, onComplete, onCancel, error }: Props) 
   }, [digits, onComplete]);
 
   const press = async (key: string) => {
-    if (key === '') return;
+    if (key === '' && !onBiometricPress) return;
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (key === '⌫') {
+    if (key === 'bio') {
+      onBiometricPress?.();
+    } else if (key === '⌫') {
       setDigits((d) => d.slice(0, -1));
-    } else if (digits.length < PIN_LENGTH) {
+    } else if (key !== '' && digits.length < PIN_LENGTH) {
       setDigits((d) => [...d, key]);
     }
   };
@@ -44,6 +47,8 @@ export function PinPad({ title, subtitle, onComplete, onCancel, error }: Props) 
   useEffect(() => {
     if (error) setDigits([]);
   }, [error]);
+
+  const gridKeys = ['1','2','3','4','5','6','7','8','9', onBiometricPress ? 'bio' : '','0','⌫'];
 
   return (
     <View style={styles.root}>
@@ -74,7 +79,7 @@ export function PinPad({ title, subtitle, onComplete, onCancel, error }: Props) 
 
       {/* Keypad */}
       <View style={styles.grid}>
-        {KEYS.map((key, i) => (
+        {gridKeys.map((key, i) => (
           <TouchableOpacity
             key={i}
             onPress={() => press(key)}
@@ -83,11 +88,14 @@ export function PinPad({ title, subtitle, onComplete, onCancel, error }: Props) 
               styles.key,
               key === '' && styles.keyEmpty,
               key === '⌫' && styles.keyBack,
-              { backgroundColor: key === '' ? 'transparent' : colors.card, borderColor: colors.border },
+              key === 'bio' && { borderColor: colors.primary, backgroundColor: colors.primary + '18' },
+              { backgroundColor: key === '' ? 'transparent' : key === 'bio' ? colors.primary + '18' : colors.card, borderColor: key === 'bio' ? colors.primary : colors.border },
             ]}
             activeOpacity={key === '' ? 1 : 0.6}
           >
-            {key === '⌫' ? (
+            {key === 'bio' ? (
+              <Ionicons name="finger-print" size={26} color={colors.primary} />
+            ) : key === '⌫' ? (
               <Ionicons name="backspace-outline" size={22} color={colors.foreground} />
             ) : (
               <Text style={[styles.keyText, { color: colors.foreground }]}>{key}</Text>

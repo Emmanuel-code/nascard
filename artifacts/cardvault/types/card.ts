@@ -16,10 +16,17 @@ export interface Card {
   barcodeValue: string;
   notes: string;
   isPartnerIssued: boolean;
+  isSample?: boolean;
+  isPinned?: boolean;
   orgId?: string;
   orgName?: string;
   primaryColor?: string;
+  secondaryColor?: string;
   accentColor?: string;
+  logoUri?: string;
+  cardPattern?: string;
+  cardLayout?: 'corporate_blue' | 'medical_green' | 'executive_gold' | 'creative_purple' | 'academic_navy' | 'event_orange';
+  visibleFieldLimit?: number;
   customFields?: Record<string, string>;
   verificationToken?: string;
   createdAt: string;
@@ -27,7 +34,7 @@ export interface Card {
 }
 
 export interface CustomFieldSchema {
-  id: string;
+  key: string;
   label: string;
   type: 'text' | 'number' | 'email' | 'phone' | 'date';
   required: boolean;
@@ -48,13 +55,18 @@ export interface OrganizationPayoutRecord {
 export interface Organization {
   id: string;
   name: string;
-  category: 'gym' | 'school' | 'club' | 'corporate' | 'community';
+  category: 'gym' | 'school' | 'club' | 'corporate' | 'community' | 'church' | 'event';
   description: string;
   location: string;
   managerName: string;
   managerEmail: string;
   primaryColor: string;
+  secondaryColor?: string;
   accentColor: string;
+  logoUri?: string;
+  cardPattern?: string;
+  cardLayout?: 'corporate_blue' | 'medical_green' | 'executive_gold' | 'creative_purple' | 'academic_navy' | 'event_orange';
+  visibleFieldLimit?: number;
   badgeStyle: 'holographic' | 'gold' | 'minimal' | 'modern';
   customFields: CustomFieldSchema[];
   membershipFee: number;
@@ -80,6 +92,10 @@ export interface Organization {
     accountName: string;
   };
   payoutHistory?: OrganizationPayoutRecord[];
+  coAdmins?: { email: string; name: string; role: 'admin' | 'co_owner'; addedAt: string }[];
+  country?: string;        // ISO 3166-1 alpha-2, e.g. 'GH', 'NG', 'US', 'GB'
+  currency?: string;       // ISO 4217, e.g. 'GHS', 'NGN', 'USD', 'GBP'
+  withdrawalRegion?: 'gh' | 'ng' | 'manual';
 }
 
 export interface OrgMember {

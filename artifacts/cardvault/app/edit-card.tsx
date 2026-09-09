@@ -65,6 +65,14 @@ export default function EditCardScreen() {
       Alert.alert('Missing info', 'Please enter a card title.');
       return;
     }
+    if (!locked && form.expiryDate.trim()) {
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(form.expiryDate.trim())) {
+        Alert.alert('Invalid Date Format', 'Please enter expiry date in YYYY-MM-DD format (e.g. 2028-12-31).');
+        return;
+      }
+    }
+
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
     const updates: Partial<Card> = { notes: form.notes.trim() };

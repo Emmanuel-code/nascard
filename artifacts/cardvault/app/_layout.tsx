@@ -14,10 +14,12 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LockScreen } from '@/components/LockScreen';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { OfflineBanner } from '@/components/OfflineBanner';
 import { CardProvider, useCards } from '@/contexts/CardContext';
 import { ProfileProvider, useProfile } from '@/contexts/ProfileContext';
 import { ProProvider } from '@/contexts/ProContext';
 import { OrgProvider } from '@/contexts/OrgContext';
+import { AuthProvider } from '@/contexts/AuthContext';
 import {
   cancelAllNotifications,
   configureNotificationHandler,
@@ -44,12 +46,7 @@ function RootLayoutNav() {
         options={{ presentation: 'fullScreenModal' }}
       />
       <Stack.Screen name="share/[token]" />
-      <Stack.Screen name="org/index" />
-      <Stack.Screen name="org/create" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-      <Stack.Screen name="org/join/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-      <Stack.Screen name="org/manage/[id]" />
-      <Stack.Screen name="org/scan-verify" options={{ presentation: 'fullScreenModal' }} />
-      <Stack.Screen name="org/payment" options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="org" />
     </Stack>
   );
 }
@@ -118,6 +115,7 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
+  // Splash stays visible until fonts are ready — profile loading is handled inside
   useEffect(() => {
     if (fontsLoaded || fontError) {
       SplashScreen.hideAsync();
@@ -131,15 +129,18 @@ export default function RootLayout() {
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
           <ProfileProvider>
-            <CardProvider>
-              <ProProvider>
-                <OrgProvider>
-                  <GestureHandlerRootView style={{ flex: 1 }}>
-                    <AppCore />
-                  </GestureHandlerRootView>
-                </OrgProvider>
-              </ProProvider>
-            </CardProvider>
+            <AuthProvider>
+              <CardProvider>
+                <ProProvider>
+                  <OrgProvider>
+                    <GestureHandlerRootView style={{ flex: 1 }}>
+                      <OfflineBanner />
+                      <AppCore />
+                    </GestureHandlerRootView>
+                  </OrgProvider>
+                </ProProvider>
+              </CardProvider>
+            </AuthProvider>
           </ProfileProvider>
         </QueryClientProvider>
       </ErrorBoundary>

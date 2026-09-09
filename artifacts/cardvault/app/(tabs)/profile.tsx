@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
   Alert,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -16,6 +17,8 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppTutorialModal } from '@/components/AppTutorialModal';
+import { VaultBackupModal } from '@/components/VaultBackupModal';
 import { PinPad } from '@/components/PinPad';
 import { useCards } from '@/contexts/CardContext';
 import { useProfile } from '@/contexts/ProfileContext';
@@ -28,6 +31,7 @@ import {
   scheduleExpiryNotifications,
 } from '@/lib/notifications';
 import { useColors } from '@/hooks/useColors';
+import { getDaysUntilExpiry } from '@/types/card';
 
 async function getBiometrics() {
   if (Platform.OS === 'web') return null;
@@ -46,6 +50,8 @@ export default function ProfileScreen() {
 
   const { isPro } = usePro();
   const [paywallVisible, setPaywallVisible] = useState(false);
+  const [tutorialVisible, setTutorialVisible] = useState(false);
+  const [backupModalVisible, setBackupModalVisible] = useState(false);
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(profile.displayName);
@@ -147,7 +153,11 @@ export default function ProfileScreen() {
   const totalCards = cards.length;
   const personalCards = cards.filter((c) => c.profileId === 'personal').length;
   const workCards = cards.filter((c) => c.profileId === 'work').length;
-  const studentCards = cards.filter((c) => c.profileId === 'student').length;
+  const expiringCards = cards.filter((c) => {
+    if (!c.expiryDate) return false;
+    const days = getDaysUntilExpiry(c.expiryDate);
+    return days >= 0 && days <= 30;
+  }).length;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -183,7 +193,7 @@ export default function ProfileScreen() {
             <Text style={styles.proEmoji}>👑</Text>
             <View style={{ flex: 1 }}>
               <Text style={[styles.proTitle, { color: colors.primaryForeground }]}>Upgrade to Pro</Text>
-              <Text style={[styles.proSub, { color: colors.primaryForeground + 'BB' }]}>$4.99/mo · Unlimited cards + all features</Text>
+              <Text style={[styles.proSub, { color: colors.primaryForeground + 'BB' }]}>GH₵ 19/mo · Unlimited cards + all features</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.primaryForeground} />
           </TouchableOpacity>
@@ -248,13 +258,50 @@ export default function ProfileScreen() {
             { label: 'Total', value: totalCards },
             { label: 'Personal', value: personalCards },
             { label: 'Work', value: workCards },
-            { label: 'Student', value: studentCards },
+            { label: 'Expiring', value: expiringCards },
           ].map((stat) => (
             <View key={stat.label} style={[styles.statItem, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.statValue, { color: colors.foreground }]}>{stat.value}</Text>
+              <Text style={[styles.statValue, {
+                color: stat.label === 'Expiring' && stat.value > 0 ? colors.warning : colors.foreground,
+              }]}>{stat.value}</Text>
               <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>{stat.label}</Text>
             </View>
           ))}
+        </View>
+
+        {/* Business & Organization Hub */}
+        <View style={styles.sectionGroup}>
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>BUSINESS & PASS STUDIO</Text>
+          
+          <TouchableOpacity
+            onPress={() => router.push('/org' as any)}
+            style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="business-outline" size={20} color={colors.primary} />
+            <View style={styles.rowContent}>
+              <Text style={[styles.rowText, { color: colors.foreground }]}>Pass Studio & Organization Hub</Text>
+              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>
+                Issue digital passes, set membership fees & track members
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => router.push('/org/scan-verify' as any)}
+            style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="scan-outline" size={20} color={colors.primary} />
+            <View style={styles.rowContent}>
+              <Text style={[styles.rowText, { color: colors.foreground }]}>Verify Member QR</Text>
+              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>
+                Scan member QR codes at entry gates or check-ins
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+          </TouchableOpacity>
         </View>
 
         {/* Security section */}
@@ -278,6 +325,16 @@ export default function ProfileScreen() {
               thumbColor={profile.appLockEnabled ? colors.primary : colors.mutedForeground}
             />
           </View>
+
+          {/* Web security notice */}
+          {Platform.OS === 'web' && (
+            <View style={[styles.infoBanner, { backgroundColor: colors.warning + '18', borderColor: colors.warning + '44' }]}>
+              <Ionicons name="information-circle-outline" size={16} color={colors.warning} />
+              <Text style={[styles.infoBannerText, { color: colors.warning }]}>
+                App Lock is not available in the browser. Use the mobile app for full security.
+              </Text>
+            </View>
+          )}
 
           {/* PIN code row */}
           {Platform.OS !== 'web' && (
@@ -329,7 +386,7 @@ export default function ProfileScreen() {
         <View style={styles.sectionGroup}>
           <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>DATA</Text>
           <TouchableOpacity
-            onPress={() => router.push('/backup' as any)}
+            onPress={() => setBackupModalVisible(true)}
             style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
             activeOpacity={0.7}
           >
@@ -348,7 +405,7 @@ export default function ProfileScreen() {
             onPress={async () => {
               try {
                 await Share.share({
-                  message: '📱 Ditch your plastic cards! Download nascard to store your cards in a 3D Apple Wallet & claim digital passes for your school, gym, or office.\n\nDownload now: https://nascard-api.onrender.com/',
+                  message: '📱 Ditch your plastic cards! Download nascard to store your cards in a 3D Apple Wallet & claim digital passes for your school, gym, or office.\n\nDownload now: https://play.google.com/store/apps/details?id=com.nascard.app',
                   title: 'nascard - 3D Digital Card Wallet',
                 });
               } catch (e) {}
@@ -369,7 +426,23 @@ export default function ProfileScreen() {
 
         {/* About section */}
         <View style={styles.sectionGroup}>
-          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>ABOUT NASCARD</Text>
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>HELP & ABOUT</Text>
+
+          {/* App Guide & Visual Tutorial */}
+          <TouchableOpacity
+            style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onPress={() => setTutorialVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="help-circle-outline" size={20} color={colors.primary} />
+            <View style={styles.rowContent}>
+              <Text style={[styles.rowText, { color: colors.foreground }]}>App Guide & Visual Tutorial</Text>
+              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>
+                Interactive guide explaining AI scan, 3D deck & passes
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+          </TouchableOpacity>
 
           {/* App Overview */}
           <TouchableOpacity
@@ -390,33 +463,29 @@ export default function ProfileScreen() {
           {/* Privacy Policy */}
           <TouchableOpacity
             style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onPress={() =>
-              Alert.alert(
-                'Privacy Policy',
-                '1. Data Privacy: Your personal card photos and details are encrypted and stored locally on your device.\n\n2. Camera Access: Camera permissions are strictly used for scanning barcodes and capturing card photos.\n\n3. Zero Selling: Septnova never sells or shares your personal card data with third parties.',
-              )
-            }
+            onPress={() => Linking.openURL('https://nascard-api.onrender.com/privacy-policy')}
             activeOpacity={0.7}
           >
             <Ionicons name="document-text-outline" size={20} color={colors.mutedForeground} />
-            <Text style={[styles.rowText, { color: colors.foreground }]}>Privacy Policy</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+            <View style={styles.rowContent}>
+              <Text style={[styles.rowText, { color: colors.foreground }]}>Privacy Policy</Text>
+              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>How we handle your data</Text>
+            </View>
+            <Ionicons name="open-outline" size={16} color={colors.mutedForeground} />
           </TouchableOpacity>
 
           {/* Terms of Service */}
           <TouchableOpacity
             style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onPress={() =>
-              Alert.alert(
-                'Terms of Service',
-                '1. Acceptable Use: You agree to upload only legitimate document photos that belong to you or your organization.\n\n2. Organization Passes: Official digital passes issued by partners are verified using dynamic cryptographic QR tokens.\n\n3. Payments & Fees: Payouts and membership fees are processed securely via Paystack.',
-              )
-            }
+            onPress={() => Linking.openURL('https://nascard-api.onrender.com/terms-of-service')}
             activeOpacity={0.7}
           >
             <Ionicons name="clipboard-outline" size={20} color={colors.mutedForeground} />
-            <Text style={[styles.rowText, { color: colors.foreground }]}>Terms of Service</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+            <View style={styles.rowContent}>
+              <Text style={[styles.rowText, { color: colors.foreground }]}>Terms of Service</Text>
+              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>Usage, payments & passes</Text>
+            </View>
+            <Ionicons name="open-outline" size={16} color={colors.mutedForeground} />
           </TouchableOpacity>
 
           {/* Contact Support */}
@@ -473,10 +542,18 @@ export default function ProfileScreen() {
             }
             onComplete={handlePinSet}
             onCancel={() => setPinModalVisible(false)}
-            error={pinError}
           />
         </View>
       </Modal>
+
+      <AppTutorialModal
+        visible={tutorialVisible}
+        onClose={() => setTutorialVisible(false)}
+      />
+      <VaultBackupModal
+        visible={backupModalVisible}
+        onClose={() => setBackupModalVisible(false)}
+      />
     </View>
   );
 }
@@ -590,4 +667,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  infoBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 2,
+  },
+  infoBannerText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', lineHeight: 17 },
 });

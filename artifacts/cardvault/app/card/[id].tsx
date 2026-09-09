@@ -1,9 +1,10 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BarcodeDisplay } from '@/components/BarcodeDisplay';
 import { BarcodeModal } from '@/components/BarcodeModal';
 import { PrivacyField } from '@/components/PrivacyField';
@@ -21,10 +22,14 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CardTypeIcon } from '@/components/CardTypeIcon';
+import { WalletCard3D } from '@/components/WalletCard3D';
 import { useCards } from '@/contexts/CardContext';
 import { useColors } from '@/hooks/useColors';
 import type { SharedCardPayload } from '@/app/share/[token]';
+import type { Card } from '@/types/card';
 import { formatExpiry, getDaysUntilExpiry, getExpiryStatus } from '@/types/card';
+
+import { SecurityQRModal } from '@/components/SecurityQRModal';
 
 const { width } = Dimensions.get('window');
 
@@ -61,11 +66,28 @@ export default function CardDetailScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { getCard, deleteCard } = useCards();
-  const card = getCard(id ?? '');
+  const [localCard, setLocalCard] = useState<Card | null>(null);
+  const card = getCard(id ?? '') || localCard;
   const [imageIndex, setImageIndex] = useState(0);
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [barcodeModalVisible, setBarcodeModalVisible] = useState(false);
+  const [securityQrVisible, setSecurityQrVisible] = useState(false);
+  const [fullImageModalVisible, setFullImageModalVisible] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!getCard(id ?? '') && id) {
+      AsyncStorage.getItem('@nascard:cards').then((raw) => {
+        if (raw) {
+          try {
+            const list: Card[] = JSON.parse(raw);
+            const found = list.find((c) => c.id === id);
+            if (found) setLocalCard(found);
+          } catch {}
+        }
+      });
+    }
+  }, [id, getCard]);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
@@ -176,57 +198,24 @@ export default function CardDetailScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Image carousel */}
-        {images.length > 0 ? (
-          <View style={styles.carouselWrap}>
-            <FlatList
-              data={images}
-              keyExtractor={(_: any, i: number) => String(i)}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              onMomentumScrollEnd={(e: any) => {
-                setImageIndex(Math.round(e.nativeEvent.contentOffset.x / (width - 40)));
-              }}
-              renderItem={({ item }: { item: string }) => (
-                <Image
-                  source={{ uri: item }}
-                  style={[styles.cardImage, { width: width - 40 }]}
-                  contentFit="cover"
-                />
-              )}
-            />
-            {images.length > 1 && (
-              <View style={styles.imageDots}>
-                {images.map((_: any, i: number) => (
-                  <View
-                    key={i}
-                    style={[
-                      styles.imageDot,
-                      {
-                        backgroundColor:
-                          i === imageIndex ? colors.foreground : colors.foreground + '44',
-                      },
-                    ]}
-                  />
-                ))}
-              </View>
-            )}
-            {images.length > 1 && (
-              <View style={[styles.imageLabel, { backgroundColor: colors.card + 'CC' }]}>
-                <Text style={[styles.imageLabelText, { color: colors.mutedForeground }]}>
-                  {imageIndex === 0 ? 'Front' : 'Back'}
-                </Text>
-              </View>
-            )}
-          </View>
-        ) : (
-          <View
-            style={[styles.noImageCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+        {/* 3D Digital Card Pass */}
+        <View style={{ alignItems: 'center', marginVertical: 12 }}>
+          <WalletCard3D card={card} onPress={() => setBarcodeModalVisible(true)} />
+        </View>
+
+        {/* Full Photo Viewer Trigger */}
+        {images.length > 0 && (
+          <TouchableOpacity
+            style={[styles.fullPhotoBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onPress={() => setFullImageModalVisible(true)}
+            activeOpacity={0.8}
           >
-            <Ionicons name="card-outline" size={40} color={colors.mutedForeground} />
-            <Text style={[styles.noImageText, { color: colors.mutedForeground }]}>No image</Text>
-          </View>
+            <Ionicons name="images-outline" size={18} color={colors.primary} />
+            <Text style={[styles.fullPhotoBtnText, { color: colors.foreground }]}>
+              View Document Photo ({images.length})
+            </Text>
+            <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />
+          </TouchableOpacity>
         )}
 
         {/* Card info */}
@@ -260,10 +249,10 @@ export default function CardDetailScreen() {
 
           {/* Custom Org Fields */}
           {card.customFields
-            ? Object.entries(card.customFields).map(([key, val]: [string, string]) => (
+            ? Object.entries(card.customFields).map(([key, val]) => (
               <View key={key} style={styles.field}>
                 <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>{key}</Text>
-                <Text style={[styles.fieldValue, { color: colors.foreground }]}>{val}</Text>
+                <Text style={[styles.fieldValue, { color: colors.foreground }]}>{String(val)}</Text>
               </View>
             ))
             : null}
@@ -335,19 +324,19 @@ export default function CardDetailScreen() {
           </TouchableOpacity>
         ) : null}
 
-        {/* Action buttons */}
+        {/* Action buttons — unified, no duplication */}
         <View style={styles.actionRow}>
           <TouchableOpacity
             onPress={async () => {
               await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-              router.push(`/verify/${card.id}`);
+              setSecurityQrVisible(true);
             }}
             style={[styles.verifyBtn, { backgroundColor: colors.primary }]}
             activeOpacity={0.85}
           >
-            <Ionicons name="qr-code" size={20} color={colors.primaryForeground} />
+            <Ionicons name="shield-checkmark" size={20} color={colors.primaryForeground} />
             <Text style={[styles.verifyBtnText, { color: colors.primaryForeground }]}>
-              Verify for Guard
+              Show Gate Pass QR 🛡️
             </Text>
           </TouchableOpacity>
 
@@ -361,7 +350,7 @@ export default function CardDetailScreen() {
         </View>
 
         <Text style={[styles.verifyHint, { color: colors.mutedForeground }]}>
-          60-second QR for live verification · Share sends a read-only link
+          Tap to show a secure 60-second QR code to guards · Auto-refreshes to prevent screenshots
         </Text>
       </ScrollView>
 
@@ -375,6 +364,13 @@ export default function CardDetailScreen() {
           cardTitle={card.title}
         />
       ) : null}
+
+      {/* 60s Zero-Knowledge Security QR Modal */}
+      <SecurityQRModal
+        card={card}
+        visible={securityQrVisible}
+        onClose={() => setSecurityQrVisible(false)}
+      />
 
       {/* Share modal */}
       <Modal
@@ -440,12 +436,62 @@ export default function CardDetailScreen() {
           </TouchableOpacity>
         </View>
       </Modal>
+
+      {/* Full Document / Selfie Image Modal */}
+      <Modal
+        visible={fullImageModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFullImageModalVisible(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <TouchableOpacity
+            style={{ position: 'absolute', top: topPad + 12, right: 20, zIndex: 10, padding: 8 }}
+            onPress={() => setFullImageModalVisible(false)}
+          >
+            <Ionicons name="close-circle" size={32} color="#FFFFFF" />
+          </TouchableOpacity>
+          {images[imageIndex] ? (
+            <Image
+              source={{ uri: images[imageIndex] }}
+              style={{ width: width - 40, height: (width - 40) * 1.3, borderRadius: 12 }}
+              contentFit="contain"
+            />
+          ) : null}
+          {images.length > 1 && (
+            <View style={{ flexDirection: 'row', gap: 16, marginTop: 20 }}>
+              {images.map((img, i) => (
+                <TouchableOpacity
+                  key={i}
+                  onPress={() => setImageIndex(i)}
+                  style={{ borderWidth: 2, borderColor: i === imageIndex ? '#F59E0B' : 'transparent', borderRadius: 8, overflow: 'hidden' }}
+                >
+                  <Image source={{ uri: img }} style={{ width: 44, height: 44 }} contentFit="cover" />
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  fullPhotoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 10,
+  },
+  fullPhotoBtnText: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: 'Inter_600SemiBold',
+  },
   notFound: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
   notFoundText: { fontSize: 16, fontFamily: 'Inter_400Regular' },
   backLink: { fontSize: 15, fontFamily: 'Inter_500Medium' },

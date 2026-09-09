@@ -34,13 +34,17 @@ export interface NearbyCardSuggestion {
   confidence: 'high' | 'medium';
 }
 
+export type LocationPermissionStatus = 'idle' | 'granted' | 'denied' | 'error';
+
 export function useNearbyCard(cards: Card[]): {
   suggestion: NearbyCardSuggestion | null;
   isLoading: boolean;
+  permissionStatus: LocationPermissionStatus;
   refresh: () => void;
 } {
   const [suggestion, setSuggestion] = useState<NearbyCardSuggestion | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [permissionStatus, setPermissionStatus] = useState<LocationPermissionStatus>('idle');
   const lastFetch = useRef(0);
   const THROTTLE_MS = 5 * 60 * 1000; // refresh at most every 5 min
 
@@ -53,8 +57,14 @@ export function useNearbyCard(cards: Card[]): {
     setIsLoading(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') { setIsLoading(false); return; }
 
+      if (status !== 'granted') {
+        setPermissionStatus('denied');
+        setIsLoading(false);
+        return;
+      }
+
+      setPermissionStatus('granted');
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       lastFetch.current = Date.now();
 
@@ -89,6 +99,7 @@ export function useNearbyCard(cards: Card[]): {
 
       setSuggestion(best);
     } catch {
+      setPermissionStatus('error');
       setSuggestion(null);
     } finally {
       setIsLoading(false);
@@ -99,5 +110,5 @@ export function useNearbyCard(cards: Card[]): {
     detect();
   }, [detect]);
 
-  return { suggestion, isLoading, refresh: detect };
+  return { suggestion, isLoading, permissionStatus, refresh: detect };
 }

@@ -3,14 +3,17 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 
 const PRO_KEY = '@nascard:pro_status';
 const PRO_CHECKED_AT_KEY = '@nascard:pro_checked_at';
-const CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour
+const PRO_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
+
+const API_BASE = process.env.EXPO_PUBLIC_DOMAIN || 'https://nascard-api.onrender.com';
 
 interface ProContextValue {
   isPro: boolean;
   isLoading: boolean;
-  checkProStatus: (email: string) => Promise<boolean>;
-  setProActive: () => Promise<void>;
-  getCheckoutUrl: () => Promise<string>;
+  /** Called after a successful Paystack payment to activate Pro. */
+  setProActive: (email?: string) => Promise<void>;
+  /** Re-validates pro status against the server safely. */
+  checkProStatus: (email?: string, reference?: string) => Promise<boolean>;
   clearPro: () => Promise<void>;
 }
 
@@ -20,59 +23,77 @@ export function ProProvider({ children }: { children: React.ReactNode }) {
   const [isPro, setIsPro] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Load cached pro status on mount
   useEffect(() => {
-    (async () => {
-      const [status, checkedAt] = await Promise.all([
-        AsyncStorage.getItem(PRO_KEY),
-        AsyncStorage.getItem(PRO_CHECKED_AT_KEY),
-      ]);
-      if (status === 'true') {
-        setIsPro(true);
+    const loadCachedStatus = async () => {
+      try {
+        const [status, checkedAt] = await Promise.all([
+          AsyncStorage.getItem(PRO_KEY),
+          AsyncStorage.getItem(PRO_CHECKED_AT_KEY),
+        ]);
+
+        if (status === 'true') {
+          setIsPro(true);
+          const checkedAtMs = checkedAt ? Number(checkedAt) : 0;
+          if (Date.now() - checkedAtMs > PRO_CHECK_TTL_MS) {
+            checkProStatus().catch(() => {});
+          }
+        }
+      } catch (e) {
+        console.error('[ProContext] Failed to load cached pro status:', e);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
-    })();
+    };
+
+    loadCachedStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const checkProStatus = useCallback(async (email: string): Promise<boolean> => {
+  /** Server-side pro status check via Paystack subscription API. */
+  const checkProStatus = useCallback(async (email?: string, reference?: string): Promise<boolean> => {
     try {
-      await AsyncStorage.multiSet([
-        [PRO_KEY, 'true'],
-        [PRO_CHECKED_AT_KEY, String(Date.now())],
-      ]);
-      setIsPro(true);
-      return true;
-    } catch {
-      return false;
+      const res = await fetch(`${API_BASE}/api/paystack/verify-subscription`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, reference }),
+      });
+      const text = await res.text();
+      let data: any = null;
+      try { data = JSON.parse(text); } catch {}
+
+      if (res.ok && data?.valid) {
+        await AsyncStorage.multiSet([
+          [PRO_KEY, 'true'],
+          [PRO_CHECKED_AT_KEY, String(Date.now())],
+        ]);
+        setIsPro(true);
+        return true;
+      }
+
+      // ONLY clear Pro if the server explicitly responded 200 OK with valid === false
+      if (res.ok && data && data.valid === false) {
+        await AsyncStorage.multiRemove([PRO_KEY, PRO_CHECKED_AT_KEY]);
+        setIsPro(false);
+        return false;
+      }
+    } catch (err) {
+      console.warn('[ProContext] Pro check network error (preserving local status):', err);
     }
+
+    // On network/server errors, preserve whatever is in AsyncStorage / state
+    const cached = await AsyncStorage.getItem(PRO_KEY);
+    return cached === 'true';
   }, []);
 
-  const setProActive = useCallback(async () => {
+  /** Called client-side immediately after Paystack confirms payment. */
+  const setProActive = useCallback(async (_email?: string) => {
+    console.log('🌟 [ProContext]: Activating Pro status in AsyncStorage & State...');
     await AsyncStorage.multiSet([
       [PRO_KEY, 'true'],
       [PRO_CHECKED_AT_KEY, String(Date.now())],
     ]);
     setIsPro(true);
-  }, []);
-
-  const getCheckoutUrl = useCallback(async (): Promise<string> => {
-    const apiBase = process.env.EXPO_PUBLIC_DOMAIN || 'https://nascard-api.onrender.com';
-    console.log('💳 [PAYSTACK CLIENT LOG]: Initializing Pro Checkout at:', `${apiBase}/api/paystack/pro-checkout`);
-    try {
-      const resp = await fetch(`${apiBase}/api/paystack/pro-checkout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'user@nascard.app', amount: 29 }),
-      });
-      console.log('💳 [PAYSTACK CLIENT LOG]: Response HTTP status:', resp.status);
-      const data = await resp.json();
-      console.log('💳 [PAYSTACK CLIENT LOG]: Response payload:', data);
-      if (data.authorizationUrl) {
-        return data.authorizationUrl;
-      }
-    } catch (err) {
-      console.error('💳 [PAYSTACK CLIENT ERROR]:', err);
-    }
-    return '';
   }, []);
 
   const clearPro = useCallback(async () => {
@@ -81,7 +102,7 @@ export function ProProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ProContext.Provider value={{ isPro, isLoading, checkProStatus, setProActive, getCheckoutUrl, clearPro }}>
+    <ProContext.Provider value={{ isPro, isLoading, checkProStatus, setProActive, clearPro }}>
       {children}
     </ProContext.Provider>
   );

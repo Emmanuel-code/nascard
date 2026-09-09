@@ -89,11 +89,19 @@ export default function TabLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
-        name="wallet"
+        name="org"
         options={{
-          href: null,
-          title: 'Wallet',
+          title: 'Studio',
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
+            <TabIcon
+              iosName="building.2"
+              fallback={<Ionicons name="business-outline" size={size} color={color} />}
+              color={color}
+              size={size}
+            />
+          ),
         }}
       />
       <Tabs.Screen

@@ -77,16 +77,35 @@ export function LockScreen({ onUnlocked }: Props) {
     if (mode === 'biometric') tryBiometric();
   }, [mode, tryBiometric]);
 
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
+
   const handlePinComplete = useCallback(async (pin: string) => {
+    if (lockoutUntil && Date.now() < lockoutUntil) {
+      const secondsLeft = Math.ceil((lockoutUntil - Date.now()) / 1000);
+      setPinError(`Too many failed attempts. Please wait ${secondsLeft}s.`);
+      return;
+    }
+
     if (!profile.pinHash) { onUnlocked(); return; }
     const ok = await verifyPin(pin, profile.pinHash);
     if (ok) {
       setPinError(null);
+      setFailedAttempts(0);
+      setLockoutUntil(null);
       onUnlocked();
     } else {
-      setPinError('Incorrect PIN. Try again.');
+      const nextCount = failedAttempts + 1;
+      setFailedAttempts(nextCount);
+      if (nextCount >= 3) {
+        const lockoutTime = Date.now() + 30000;
+        setLockoutUntil(lockoutTime);
+        setPinError('Too many incorrect PIN entries. Locked for 30 seconds.');
+      } else {
+        setPinError(`Incorrect PIN. ${3 - nextCount} attempt(s) remaining.`);
+      }
     }
-  }, [profile.pinHash, onUnlocked]);
+  }, [profile.pinHash, onUnlocked, failedAttempts, lockoutUntil]);
 
   const icon = biometricType === 'face' ? 'scan-outline' : biometricType === 'fingerprint' ? 'finger-print-outline' : 'lock-closed-outline';
   const label = biometricType === 'face' ? 'Face ID' : biometricType === 'fingerprint' ? 'Touch ID' : 'Passcode';

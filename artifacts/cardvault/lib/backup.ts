@@ -19,12 +19,51 @@ async function getCryptoJS() {
 
 export async function encryptCards(cards: Card[], password: string): Promise<string> {
   const CJS = await getCryptoJS();
-  const strippedCards = cards.map((c) => ({
-    ...c,
-    frontImageUri: null,
-    backImageUri: null,
-  }));
-  const json = JSON.stringify(strippedCards);
+
+  // Process cards to ensure image portability across devices
+  const processedCards = await Promise.all(
+    cards.map(async (c) => {
+      let frontUri = c.frontImageUri;
+      let backUri = c.backImageUri;
+      let logoUri = c.logoUri;
+
+      // If local file URI on mobile, encode to base64 so it can be restored on another device
+      if (Platform.OS !== 'web' && frontUri && frontUri.startsWith('file://')) {
+        try {
+          const FS = await import('expo-file-system');
+          const fileInfo = await FS.getInfoAsync(frontUri);
+          if (fileInfo.exists && (fileInfo.size || 0) < 1.5 * 1024 * 1024) {
+            const base64 = await FS.readAsStringAsync(frontUri, { encoding: FS.EncodingType.Base64 });
+            frontUri = `data:image/jpeg;base64,${base64}`;
+          }
+        } catch (e) {
+          console.warn('[Backup] Could not encode local front image:', e);
+        }
+      }
+
+      if (Platform.OS !== 'web' && backUri && backUri.startsWith('file://')) {
+        try {
+          const FS = await import('expo-file-system');
+          const fileInfo = await FS.getInfoAsync(backUri);
+          if (fileInfo.exists && (fileInfo.size || 0) < 1.5 * 1024 * 1024) {
+            const base64 = await FS.readAsStringAsync(backUri, { encoding: FS.EncodingType.Base64 });
+            backUri = `data:image/jpeg;base64,${base64}`;
+          }
+        } catch (e) {
+          console.warn('[Backup] Could not encode local back image:', e);
+        }
+      }
+
+      return {
+        ...c,
+        frontImageUri: frontUri,
+        backImageUri: backUri,
+        logoUri,
+      };
+    }),
+  );
+
+  const json = JSON.stringify(processedCards);
   return CJS.AES.encrypt(json, password).toString();
 }
 

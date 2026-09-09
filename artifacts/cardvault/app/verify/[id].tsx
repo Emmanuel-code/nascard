@@ -21,17 +21,24 @@ const { width } = Dimensions.get('window');
 const QR_SIZE = Math.min(width - 80, 260);
 const EXPIRY_SECONDS = 60;
 
-function generateToken(cardId: string, displayName: string, idNumber: string, expiryDate: string): string {
+function generateToken(cardId: string, displayName: string, idNumber: string, expiryDate: string, orgId?: string, orgName?: string): string {
   const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const currentBlock = Math.floor(Date.now() / (60 * 1000));
   const payload = {
-    v: 1,
+    v: 'nascard_dynamic_v1',
     cardId,
+    cid: cardId,
+    orgId: orgId || 'org_verified',
+    org: orgName || 'nascard Pass',
     displayName,
     idNumber,
+    ref: idNumber ? `***${idNumber.slice(-4)}` : 'PASS',
     expiryDate,
+    t: currentBlock,
     issuedAt: Date.now(),
     expiresAt: Date.now() + EXPIRY_SECONDS * 1000,
     nonce,
+    sig: `sig_${(Date.now() % 999999).toString(36).toUpperCase()}`,
   };
   return btoa(JSON.stringify(payload));
 }
@@ -47,16 +54,34 @@ export default function VerifyScreen() {
 
   const [secondsLeft, setSecondsLeft] = useState(EXPIRY_SECONDS);
   const [expired, setExpired] = useState(false);
-  const [token] = useState(() =>
+  const [token, setToken] = useState(() =>
     card
       ? generateToken(
           card.id,
           profile.displayName || card.nameOnCard,
           card.idNumber,
           card.expiryDate,
+          card.orgId,
+          card.orgName || card.title,
         )
       : '',
   );
+
+  const refreshCurrentToken = useCallback(() => {
+    if (!card) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const newToken = generateToken(
+      card.id,
+      profile.displayName || card.nameOnCard,
+      card.idNumber,
+      card.expiryDate,
+      card.orgId,
+      card.orgName || card.title,
+    );
+    setToken(newToken);
+    setSecondsLeft(EXPIRY_SECONDS);
+    setExpired(false);
+  }, [card, profile]);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
@@ -76,7 +101,7 @@ export default function VerifyScreen() {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [token]);
 
   // Animated corner brackets
   const pulse = useRef(new Animated.Value(0.6)).current;
@@ -205,7 +230,7 @@ export default function VerifyScreen() {
           </View>
         ) : (
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={refreshCurrentToken}
             style={[styles.refreshBtn, { backgroundColor: timerColor + '22', borderColor: timerColor }]}
           >
             <Ionicons name="refresh" size={18} color={timerColor} />
