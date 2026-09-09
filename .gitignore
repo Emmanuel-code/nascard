@@ -36,10 +36,12 @@ npm-debug.log
 yarn-error.log
 testem.log
 /typings
-
+replit.md
 # System Files
 .DS_Store
 Thumbs.db
+NasCard_Org_Pitch.pptx
+generate_nascard_pitch.py
 
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
