@@ -48,7 +48,7 @@ export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { profile, updateProfile } = useProfile();
+  const { profile, updateProfile, setActiveProfile } = useProfile();
   const { cards, isLoading } = useCards();
   const { isPro } = usePro();
   const { managedOrgs } = useOrg();
@@ -60,6 +60,13 @@ export default function HomeScreen() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [securityModalVisible, setSecurityModalVisible] = useState(false);
+
+  const cycleProfile = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const order: Array<'personal' | 'work' | 'student'> = ['personal', 'work', 'student'];
+    const nextIdx = (order.indexOf(profile.activeProfile) + 1) % order.length;
+    setActiveProfile(order[nextIdx]);
+  };
 
   const myCards = cards.filter((c) => c.profileId === profile.activeProfile);
   const userCards = myCards.filter((c) => !c.isSample && !c.id.startsWith('sample-'));
@@ -85,7 +92,12 @@ export default function HomeScreen() {
   }, [myCards, selectedCategory, searchQuery]);
 
   const expiringCards = useMemo(
-    () => cards.filter((c: any) => getDaysUntilExpiry(c.expiryDate) <= 14 && getDaysUntilExpiry(c.expiryDate) >= 0),
+    () =>
+      cards.filter((c: any) => {
+        if (!c.expiryDate) return false;
+        const days = getDaysUntilExpiry(c.expiryDate);
+        return !isNaN(days) && days <= 14 && days >= 0;
+      }),
     [cards],
   );
 
@@ -320,6 +332,64 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* ── Vault Health & Profile Stats Bar ── */}
+        <View style={[styles.vaultStatsBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <TouchableOpacity
+            style={styles.vaultStatItem}
+            onPress={() => router.push('/(tabs)/cards' as any)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.vaultStatTopRow}>
+              <Ionicons name="wallet-outline" size={14} color={colors.primary} />
+              <Text style={[styles.vaultStatValue, { color: colors.foreground }]}>{cards.length}</Text>
+            </View>
+            <Text style={[styles.vaultStatLabel, { color: colors.mutedForeground }]}>Total Passes</Text>
+          </TouchableOpacity>
+
+          <View style={[styles.vaultStatDivider, { backgroundColor: colors.border }]} />
+
+          <TouchableOpacity
+            style={styles.vaultStatItem}
+            onPress={() => router.push('/(tabs)/notifications')}
+            activeOpacity={0.7}
+          >
+            <View style={styles.vaultStatTopRow}>
+              <Ionicons
+                name={expiringCards.length > 0 ? 'time' : 'shield-checkmark-outline'}
+                size={14}
+                color={expiringCards.length > 0 ? colors.warning : colors.verified}
+              />
+              <Text
+                style={[
+                  styles.vaultStatValue,
+                  { color: expiringCards.length > 0 ? colors.warning : colors.verified },
+                ]}
+              >
+                {expiringCards.length > 0 ? expiringCards.length : '0'}
+              </Text>
+            </View>
+            <Text style={[styles.vaultStatLabel, { color: colors.mutedForeground }]}>
+              {expiringCards.length > 0 ? 'Expiring' : 'All Clear'}
+            </Text>
+          </TouchableOpacity>
+
+          <View style={[styles.vaultStatDivider, { backgroundColor: colors.border }]} />
+
+          <TouchableOpacity
+            style={styles.vaultStatItem}
+            onPress={cycleProfile}
+            activeOpacity={0.7}
+          >
+            <View style={styles.vaultStatTopRow}>
+              <Ionicons name="person-circle-outline" size={14} color={colors.mutedForeground} />
+              <Text style={[styles.vaultStatValue, { color: colors.foreground, textTransform: 'capitalize' }]}>
+                {profile.activeProfile}
+              </Text>
+            </View>
+            <Text style={[styles.vaultStatLabel, { color: colors.primary }]}>Tap to Switch</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* ── Prominent Pass Studio Quick Banner ── */}
         {/* <TouchableOpacity
           style={[
@@ -410,17 +480,34 @@ export default function HomeScreen() {
           </TouchableOpacity>
         ) : null} */}
 
-        {/* Expiring soon banner */}
+        {/* Expiring soon banner - shows card names when ≤2 expiring */}
         {expiringCards.length > 0 && (
           <TouchableOpacity
             style={[styles.expiryBanner, { backgroundColor: colors.warning + '1A', borderColor: colors.warning + '44' }]}
             onPress={() => router.push('/(tabs)/notifications')}
+            activeOpacity={0.8}
           >
             <Ionicons name="warning" size={16} color={colors.warning} />
-            <Text style={[styles.expiryBannerText, { color: colors.warning }]}>
-              {expiringCards.length} card{expiringCards.length > 1 ? 's' : ''} expiring soon
-            </Text>
-            <Ionicons name="chevron-forward" size={14} color={colors.warning} />
+            <View style={{ flex: 1 }}>
+              {expiringCards.length <= 2 ? (
+                expiringCards.map((c, i) => {
+                  const d = getDaysUntilExpiry(c.expiryDate);
+                  const lbl = d < 0 ? 'expired' : d === 0 ? 'today' : `${d}d left`;
+                  return (
+                    <Text key={c.id} style={[styles.expiryBannerText, { color: colors.warning, marginBottom: i < expiringCards.length - 1 ? 2 : 0 }]} numberOfLines={1}>
+                      {c.title} — {lbl}
+                    </Text>
+                  );
+                })
+              ) : (
+                <Text style={[styles.expiryBannerText, { color: colors.warning }]}>
+                  {expiringCards.length} cards expiring soon
+                </Text>
+              )}
+            </View>
+            <View style={[styles.expiryChevron, { backgroundColor: colors.warning + '22' }]}>
+              <Ionicons name="chevron-forward" size={13} color={colors.warning} />
+            </View>
           </TouchableOpacity>
         )}
 
@@ -676,16 +763,58 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     marginTop: 2,
   },
+  vaultStatsBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  vaultStatItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  vaultStatTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  vaultStatValue: {
+    fontSize: 13,
+    fontFamily: 'Inter_700Bold',
+  },
+  vaultStatLabel: {
+    fontSize: 10,
+    fontFamily: 'Inter_500Medium',
+  },
+  vaultStatDivider: {
+    width: 1,
+    height: 22,
+    opacity: 0.6,
+  },
   expiryBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    padding: 12,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
     borderRadius: 12,
     borderWidth: 1,
     marginBottom: 12,
   },
-  expiryBannerText: { flex: 1, fontSize: 13, fontFamily: 'Inter_500Medium' },
+  expiryBannerText: { fontSize: 13, fontFamily: 'Inter_500Medium' },
+  expiryChevron: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   // Inline Search
   inlineSearchWrap: {

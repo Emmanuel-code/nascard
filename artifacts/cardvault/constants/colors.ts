@@ -26,6 +26,9 @@ const colors = {
     cardPersonal: "#1A3A8F",
     cardWork: "#7C3AED",
     cardStudent: "#0E7490",
+    subtext: "#525E85",
+    surface: "#FFFFFF",
+    danger: "#E84545",
   },
   dark: {
     text: "#EDF0FF",
@@ -54,6 +57,9 @@ const colors = {
     cardPersonal: "#C9A227",
     cardWork: "#9B6DFF",
     cardStudent: "#22D3EE",
+    subtext: "#8594C4",
+    surface: "#101624",
+    danger: "#E84545",
   },
   radius: 14,
 };

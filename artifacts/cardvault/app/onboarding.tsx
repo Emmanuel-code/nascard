@@ -29,6 +29,7 @@ import { PinPad } from '@/components/PinPad';
 import { useProfile } from '@/contexts/ProfileContext';
 import { hashPin } from '@/lib/pin';
 import { useColors } from '@/hooks/useColors';
+import { pauseAppLock } from '@/lib/appLock';
 
 const { width, height } = Dimensions.get('window');
 
@@ -115,6 +116,8 @@ export default function OnboardingScreen() {
       if (entered === firstPin) {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         const pinHash = await hashPin(entered);
+        // Pause AppLock so the app doesn't immediately lock after enabling it on first run
+        pauseAppLock(120000);
         await updateProfile({ pinHash, appLockEnabled: true });
         await completeOnboarding(name.trim(), '');
         router.replace('/(tabs)');

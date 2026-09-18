@@ -31,7 +31,14 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     AsyncStorage.getItem(PROFILE_KEY)
       .then((raw) => {
-        if (raw) setProfile(JSON.parse(raw));
+        if (raw) {
+          try {
+            setProfile(JSON.parse(raw));
+          } catch {
+            // Corrupted storage — reset to defaults rather than crashing
+            console.warn('[ProfileContext] Corrupted profile data in storage, resetting to defaults.');
+          }
+        }
       })
       .finally(() => setIsLoading(false));
   }, []);

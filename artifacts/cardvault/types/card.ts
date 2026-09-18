@@ -29,6 +29,7 @@ export interface Card {
   visibleFieldLimit?: number;
   customFields?: Record<string, string>;
   verificationToken?: string;
+  status?: 'active' | 'revoked' | 'expired';
   createdAt: string;
   updatedAt: string;
 }
@@ -105,7 +106,7 @@ export interface OrgMember {
   memberEmail?: string;
   customFieldsData: Record<string, string>;
   photoUri?: string | null;
-  cardId: string;
+  cardId?: string;
   status: 'active' | 'expired' | 'revoked';
   verificationToken: string;
   joinedAt: string;
@@ -121,6 +122,8 @@ export interface UserProfile {
   appLockEnabled: boolean;
   notificationsEnabled: boolean;
   pinHash?: string;
+  lockTimeoutMinutes?: number;
+  geminiApiKey?: string;
 }
 
 export type ExpiryStatus = 'valid' | 'expiring' | 'expired';
@@ -139,8 +142,9 @@ export function getExpiryStatus(expiryDate: string): ExpiryStatus {
 export function getDaysUntilExpiry(expiryDate: string): number {
   if (!expiryDate) return 9999;
   const expiry = new Date(expiryDate);
-  const now = new Date();
-  return Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  const diff = expiry.getTime() - Date.now();
+  if (isNaN(diff)) return 9999;
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
 export function formatExpiry(expiryDate: string): string {

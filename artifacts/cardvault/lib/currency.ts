@@ -77,6 +77,9 @@ export const NG_BANKS: WithdrawalProvider[] = [
   { code: 'PALMPAY', name: 'PalmPay', type: 'momo' },
 ];
 
+// ── Flutterwave / Other payout providers ──────────────────────────────────────
+export const FLW_PROVIDERS: WithdrawalProvider[] = [];
+
 /** Return the payout methods available for a given region */
 export function getProvidersForRegion(
   region: WithdrawalRegion,

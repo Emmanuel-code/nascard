@@ -3,9 +3,8 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
-  Alert,
   Linking,
-  Modal,
+  Modal, Alert,
   Platform,
   ScrollView,
   Share,
@@ -16,6 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { showCustomAlert } from '@/components/StyledAlert';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppTutorialModal } from '@/components/AppTutorialModal';
 import { VaultBackupModal } from '@/components/VaultBackupModal';
@@ -32,6 +32,7 @@ import {
 } from '@/lib/notifications';
 import { useColors } from '@/hooks/useColors';
 import { getDaysUntilExpiry } from '@/types/card';
+import { pauseAppLock } from '@/lib/appLock';
 
 async function getBiometrics() {
   if (Platform.OS === 'web') return null;
@@ -63,6 +64,10 @@ export default function ProfileScreen() {
   const [firstPin, setFirstPin] = useState('');
   const [pinError, setPinError] = useState<string | null>(null);
 
+  // Gemini Vision API Key state
+  const [geminiKeyInput, setGeminiKeyInput] = useState(profile.geminiApiKey ?? '');
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+
   const saveProfile = async () => {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     updateProfile({ displayName: name, email });
@@ -70,6 +75,7 @@ export default function ProfileScreen() {
   };
 
   const handleAppLockToggle = async (val: boolean) => {
+    pauseAppLock(60000);
     if (val && Platform.OS !== 'web') {
       const LA = await getBiometrics();
       if (!LA) { updateProfile({ appLockEnabled: true }); return; }
@@ -326,6 +332,61 @@ export default function ProfileScreen() {
             />
           </View>
 
+          {/* Auto-Lock Timeout selector when AppLock is active */}
+          {profile.appLockEnabled && Platform.OS !== 'web' && (
+            <View style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border, flexDirection: 'column', alignItems: 'flex-start', gap: 10 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, width: '100%' }}>
+                <Ionicons name="timer-outline" size={20} color={colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowText, { color: colors.foreground }]}>Lock After Away</Text>
+                  <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>
+                    Time before requiring authentication again
+                  </Text>
+                </View>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 6, width: '100%', flexWrap: 'wrap', marginTop: 4 }}>
+                {[
+                  { label: 'Immediate', min: 0 },
+                  { label: '1 min', min: 1 },
+                  { label: '3 min', min: 3 },
+                  { label: '5 min', min: 5 },
+                  { label: '15 min', min: 15 },
+                ].map((opt) => {
+                  const currentMin = profile.lockTimeoutMinutes ?? 3;
+                  const isSelected = currentMin === opt.min;
+                  return (
+                    <TouchableOpacity
+                      key={opt.min}
+                      onPress={async () => {
+                        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        updateProfile({ lockTimeoutMinutes: opt.min });
+                      }}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 7,
+                        borderRadius: 8,
+                        backgroundColor: isSelected ? colors.primary : colors.background,
+                        borderWidth: 1,
+                        borderColor: isSelected ? colors.primary : colors.border,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          fontFamily: 'Inter_600SemiBold',
+                          color: isSelected ? colors.primaryForeground : colors.foreground,
+                        }}
+                      >
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
           {/* Web security notice */}
           {Platform.OS === 'web' && (
             <View style={[styles.infoBanner, { backgroundColor: colors.warning + '18', borderColor: colors.warning + '44' }]}>
@@ -401,119 +462,183 @@ export default function ProfileScreen() {
           </TouchableOpacity>
 
           {/* Share nascard App */}
-          <TouchableOpacity
-            onPress={async () => {
-              try {
-                await Share.share({
-                  message: '📱 Ditch your plastic cards! Download nascard to store your cards in a 3D Apple Wallet & claim digital passes for your school, gym, or office.\n\nDownload now: https://play.google.com/store/apps/details?id=com.nascard.app',
-                  title: 'nascard - 3D Digital Card Wallet',
-                });
-              } catch (e) {}
-            }}
-            style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="share-social-outline" size={20} color={colors.primary} />
-            <View style={styles.rowContent}>
-              <Text style={[styles.rowText, { color: colors.foreground }]}>Share nascard App</Text>
-              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>
-                Invite friends or classmates to try the 3D wallet
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
-          </TouchableOpacity>
+        {/* Share nascard App */}
+<TouchableOpacity
+  onPress={async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.nascard.app';
+    const webUrl = 'https://nascard-api.onrender.com';
+
+    // Tailor message based on platform
+    const shareMessage = Platform.select({
+      android: `📱 Ditch your plastic cards! Store your IDs, memberships & passes in a 3D digital wallet with nascard.\n\nDownload on Google Play: ${playStoreUrl}`,
+      ios: `📱 Ditch your plastic cards! Store your IDs, memberships & passes in a 3D digital wallet with nascard.\n\nCheck it out here: ${webUrl}`,
+      default: `📱 Ditch your plastic cards! Try nascard - 3D Digital Pass Vault & Card Wallet:\n${webUrl}`,
+    });
+
+    try {
+      await Share.share(
+        Platform.OS === 'ios'
+          ? {
+              message: shareMessage,
+              url: webUrl, // Explicit URL param improves iOS native share sheet handling
+            }
+          : {
+              message: shareMessage,
+              title: 'nascard Wallet — 3D Digital Card Vault',
+            },
+      );
+    } catch (err) {
+      console.warn('[ProfileScreen] Share sheet dismissed or failed:', err);
+    }
+  }}
+  style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+  activeOpacity={0.7}
+>
+  <Ionicons name="share-social-outline" size={20} color={colors.primary} />
+  <View style={styles.rowContent}>
+    <Text style={[styles.rowText, { color: colors.foreground }]}>Share nascard App</Text>
+    <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>
+      Invite friends or colleagues to try the 3D wallet
+    </Text>
+  </View>
+  <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+</TouchableOpacity>
         </View>
 
+       
         {/* About section */}
-        <View style={styles.sectionGroup}>
-          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>HELP & ABOUT</Text>
+       {/* HELP & ABOUT */}
+<View style={styles.sectionGroup}>
+  <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>HELP & ABOUT</Text>
 
-          {/* App Guide & Visual Tutorial */}
-          <TouchableOpacity
-            style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onPress={() => setTutorialVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="help-circle-outline" size={20} color={colors.primary} />
-            <View style={styles.rowContent}>
-              <Text style={[styles.rowText, { color: colors.foreground }]}>App Guide & Visual Tutorial</Text>
-              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>
-                Interactive guide explaining AI scan, 3D deck & passes
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
-          </TouchableOpacity>
+  {/* Visual Interactive Tutorial */}
+  <TouchableOpacity
+    style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+    onPress={() => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setTutorialVisible(true);
+    }}
+    activeOpacity={0.7}
+  >
+    <Ionicons name="compass-outline" size={20} color={colors.primary} />
+    <View style={styles.rowContent}>
+      <Text style={[styles.rowText, { color: colors.foreground }]}>App Guide & Visual Tutorial</Text>
+      <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>
+        Learn AI scanning, 3D card deck & pass claims
+      </Text>
+    </View>
+    <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+  </TouchableOpacity>
 
-          {/* App Overview */}
-          <TouchableOpacity
-            style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onPress={() =>
-              Alert.alert(
-                'About nascard',
-                'nascard is a high-security, 3D interactive digital card wallet & partner pass platform. Replace physical plastic cards with instant, verified digital passes for gyms, schools, clubs, and workplaces.\n\n🏢 Company: Septnova\n👨‍💻 Lead Developer: Emmanuel Jimah Bakeri\n📧 Contact: septnova.contact@gmail.com',
-              )
-            }
-            activeOpacity={0.7}
-          >
-            <Ionicons name="sparkles-outline" size={20} color={colors.primary} />
-            <Text style={[styles.rowText, { color: colors.foreground }]}>About nascard</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
-          </TouchableOpacity>
+  {/* Rate & Review on Play Store */}
+ <TouchableOpacity
+  style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+  onPress={async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    if (Platform.OS === 'android') {
+      const playStoreUrl = 'market://details?id=com.nascard.app';
+      const webUrl = 'https://play.google.com/store/apps/details?id=com.nascard.app';
+      try {
+        const canOpen = await Linking.canOpenURL(playStoreUrl);
+        await Linking.openURL(canOpen ? playStoreUrl : webUrl);
+      } catch {
+        await Linking.openURL(webUrl);
+      }
+    } else {
+      // iOS / Web fallback: Open direct email or web feedback form
+      showCustomAlert(
+        'Feedback & iOS Access',
+        'nascard Wallet for iOS is coming soon!\n\nTo share feedback or request TestFlight access, email support at septnova.contact@gmail.com',
+        [{ text: 'Got it', style: 'default' }],
+        { type: 'info', icon: 'mail' },
+      );
+    }
+  }}
+  activeOpacity={0.7}
+>
+  <Ionicons name="star-outline" size={20} color={colors.primary} />
+  <View style={styles.rowContent}>
+    <Text style={[styles.rowText, { color: colors.foreground }]}>
+      {Platform.OS === 'android' ? 'Rate nascard Wallet' : 'Feedback & Ratings'}
+    </Text>
+    <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>
+      {Platform.OS === 'android' ? 'Leave feedback on Google Play' : 'Send feedback to dev team'}
+    </Text>
+  </View>
+  <Ionicons name={Platform.OS === 'android' ? 'open-outline' : 'chevron-forward'} size={16} color={colors.mutedForeground} />
+</TouchableOpacity>
 
-          {/* Privacy Policy */}
-          <TouchableOpacity
-            style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onPress={() => Linking.openURL('https://nascard-api.onrender.com/privacy-policy')}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="document-text-outline" size={20} color={colors.mutedForeground} />
-            <View style={styles.rowContent}>
-              <Text style={[styles.rowText, { color: colors.foreground }]}>Privacy Policy</Text>
-              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>How we handle your data</Text>
-            </View>
-            <Ionicons name="open-outline" size={16} color={colors.mutedForeground} />
-          </TouchableOpacity>
+  {/* Privacy Policy */}
+  <TouchableOpacity
+    style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+    onPress={() => Linking.openURL('https://nascard-api.onrender.com/privacy-policy')}
+    activeOpacity={0.7}
+  >
+    <Ionicons name="shield-checkmark-outline" size={20} color={colors.mutedForeground} />
+    <View style={styles.rowContent}>
+      <Text style={[styles.rowText, { color: colors.foreground }]}>Privacy Policy</Text>
+      <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>AES-256 local storage & data rights</Text>
+    </View>
+    <Ionicons name="open-outline" size={16} color={colors.mutedForeground} />
+  </TouchableOpacity>
 
-          {/* Terms of Service */}
-          <TouchableOpacity
-            style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onPress={() => Linking.openURL('https://nascard-api.onrender.com/terms-of-service')}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="clipboard-outline" size={20} color={colors.mutedForeground} />
-            <View style={styles.rowContent}>
-              <Text style={[styles.rowText, { color: colors.foreground }]}>Terms of Service</Text>
-              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>Usage, payments & passes</Text>
-            </View>
-            <Ionicons name="open-outline" size={16} color={colors.mutedForeground} />
-          </TouchableOpacity>
+  {/* Terms of Service */}
+  <TouchableOpacity
+    style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+    onPress={() => Linking.openURL('https://nascard-api.onrender.com/terms-of-service')}
+    activeOpacity={0.7}
+  >
+    <Ionicons name="document-text-outline" size={20} color={colors.mutedForeground} />
+    <View style={styles.rowContent}>
+      <Text style={[styles.rowText, { color: colors.foreground }]}>Terms of Service</Text>
+      <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>Pass issuance & usage terms</Text>
+    </View>
+    <Ionicons name="open-outline" size={16} color={colors.mutedForeground} />
+  </TouchableOpacity>
 
-          {/* Contact Support */}
-          <TouchableOpacity
-            style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onPress={() =>
-              Alert.alert(
-                'Contact Support',
-                'Need help or have feedback?\n\n🏢 Company: Septnova\n👨‍💻 Lead Developer: Emmanuel Jimah Bakeri\n📧 Email: septnova.contact@gmail.com\n🌐 Server: https://nascard-api.onrender.com',
-              )
-            }
-            activeOpacity={0.7}
-          >
-            <Ionicons name="mail-outline" size={20} color={colors.mutedForeground} />
-            <Text style={[styles.rowText, { color: colors.foreground }]}>Contact Support</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
-          </TouchableOpacity>
+  {/* Contact Support */}
+  <TouchableOpacity
+    style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+    onPress={() =>
+      showCustomAlert(
+        'Contact Support',
+        'Need assistance or reporting a pass issue?\n\n🏢 Company: Septnova\n📧 Support: septnova.contact@gmail.com\n💬 Response Time: Within 24 hours',
+        [{ text: 'Close', style: 'default' }],
+        { type: 'info', icon: 'mail' },
+      )
+    }
+    activeOpacity={0.7}
+  >
+    <Ionicons name="mail-outline" size={20} color={colors.mutedForeground} />
+    <View style={styles.rowContent}>
+      <Text style={[styles.rowText, { color: colors.foreground }]}>Contact Support</Text>
+      <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>Get help with your pass vault</Text>
+    </View>
+    <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+  </TouchableOpacity>
 
-          {/* Version Info */}
-          <View style={[styles.versionRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Ionicons name="code-slash-outline" size={20} color={colors.primary} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.rowText, { color: colors.foreground }]}>Septnova Release v1.0.0</Text>
-              <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>Developed by Emmanuel Jimah Bakeri</Text>
-            </View>
-            <Text style={[styles.versionText, { color: colors.primary, fontFamily: 'Inter_700Bold' }]}>v1.0.0</Text>
-          </View>
-        </View>
+  {/* About & Version Info */}
+  <TouchableOpacity
+    style={[styles.versionRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+    onPress={() =>
+      Alert.alert(
+        'About nascard Wallet',
+        'nascard is a high-security 3D digital card wallet & pass verification system.\n\nVersion: 1.0.0 (Build 1)\nPublisher: Septnova\nEngine: Expo Router & React Native',
+      )
+    }
+    activeOpacity={0.7}
+  >
+    <Ionicons name="information-circle-outline" size={20} color={colors.primary} />
+    <View style={{ flex: 1 }}>
+      <Text style={[styles.rowText, { color: colors.foreground }]}>nascard Wallet</Text>
+      <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>Septnova Release · v1.0.0</Text>
+    </View>
+    <Text style={[styles.versionText, { color: colors.primary, fontFamily: 'Inter_700Bold' }]}>v1.0.0</Text>
+  </TouchableOpacity>
+</View>
       </ScrollView>
 
       {/* PIN setup modal */}

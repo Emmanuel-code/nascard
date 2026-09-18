@@ -17,6 +17,7 @@ import { PinPad } from '@/components/PinPad';
 import { useProfile } from '@/contexts/ProfileContext';
 import { hashPin } from '@/lib/pin';
 import { useColors } from '@/hooks/useColors';
+import { pauseAppLock } from '@/lib/appLock';
 
 interface Props {
   visible: boolean;
@@ -46,6 +47,7 @@ export function StartupSetupModal({ visible, onClose }: Props) {
       if (enteredPin === firstPin) {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         const pinHash = await hashPin(enteredPin);
+        pauseAppLock(120000);
         await updateProfile({ pinHash, appLockEnabled: true });
         Alert.alert('App Lock Activated 🔒', 'Your 6-digit PIN has been saved.');
         setStep(2);

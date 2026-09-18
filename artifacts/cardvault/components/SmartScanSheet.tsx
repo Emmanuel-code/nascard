@@ -181,19 +181,57 @@ export function parseBarcodePayload(rawValue: string, typeString: string): Scann
     }
   }
 
-  // 5. Intelligent Title & Type inference
+  // 5. Intelligent ID, Ghana Card, NHIS, and Campus Pattern Matching
+  const upper = rawValue.toUpperCase().trim();
+
+  // Ghana Card pattern: GHA-XXXXXXXXX-X
+  const ghaMatch = upper.match(/\b(GHA-\d{9}-\d)\b/);
+  if (ghaMatch) {
+    extractedId = ghaMatch[1];
+    suggestedType = 'id';
+    suggestedTitle = 'Ghana National ID Card';
+  }
+
+  // NHIS / Health Insurance pattern (e.g. NHIS-12345678 or 8-digit health number)
+  const nhisMatch = upper.match(/\b(?:NHIS|HEALTH)[-:\s]?(\d{8,10})\b/);
+  if (nhisMatch) {
+    extractedId = nhisMatch[1];
+    suggestedType = 'health';
+    suggestedTitle = 'National Health Insurance (NHIS)';
+  }
+
+  // University Student Index / Matriculation No (e.g. STU/2024/0912 or 10892019)
+  const studentMatch = upper.match(/\b(?:STU|MATRIC|INDEX|STUDENT)[-:\s/]?([A-Z0-9/-]{6,16})\b/);
+  if (studentMatch) {
+    extractedId = studentMatch[1];
+    suggestedType = 'membership';
+    suggestedTitle = 'University Student Pass';
+  }
+
+  // Driver License / DVLA pattern
+  const dvlaMatch = upper.match(/\b(?:DL|DVLA|LICENSE)[-:\s]?([A-Z0-9]{8,14})\b/);
+  if (dvlaMatch) {
+    extractedId = dvlaMatch[1];
+    suggestedType = 'id';
+    suggestedTitle = "Driver's License";
+  }
+
+  // 6. Intelligent Title & Type inference fallback
   if (!suggestedTitle) {
-    if (rawValue.toUpperCase().includes('GHA') || rawValue.toUpperCase().includes('ID')) {
+    if (upper.includes('GHA') || upper.includes('NATIONAL') || upper.includes('CITIZEN')) {
       suggestedType = 'id';
       suggestedTitle = 'National Identity Card';
-    } else if (rawValue.toUpperCase().includes('STU') || rawValue.toUpperCase().includes('UNI')) {
+    } else if (upper.includes('STU') || upper.includes('UNI') || upper.includes('CAMPUS') || upper.includes('ACADEMIC')) {
       suggestedType = 'membership';
       suggestedTitle = 'University Student Pass';
-    } else if (rawValue.toUpperCase().includes('FIT') || rawValue.toUpperCase().includes('GYM')) {
+    } else if (upper.includes('FIT') || upper.includes('GYM') || upper.includes('HEALTH') || upper.includes('CLINIC')) {
       suggestedType = 'health';
-      suggestedTitle = 'Gym & Fitness Membership';
+      suggestedTitle = 'Health & Fitness Pass';
+    } else if (upper.includes('VIP') || upper.includes('REWARD') || upper.includes('LOYAL') || upper.includes('CLUB')) {
+      suggestedType = 'loyalty';
+      suggestedTitle = 'VIP Loyalty Pass';
     } else {
-      suggestedTitle = 'Scanned Smart Pass';
+      suggestedTitle = 'Scanned Digital Pass';
     }
   }
 

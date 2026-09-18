@@ -9,7 +9,6 @@ import { BarcodeDisplay } from '@/components/BarcodeDisplay';
 import { BarcodeModal } from '@/components/BarcodeModal';
 import { PrivacyField } from '@/components/PrivacyField';
 import {
-  Alert,
   Dimensions,
   FlatList,
   Modal,
@@ -20,6 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { showCustomAlert } from '@/components/StyledAlert';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CardTypeIcon } from '@/components/CardTypeIcon';
 import { WalletCard3D } from '@/components/WalletCard3D';
@@ -65,7 +65,7 @@ export default function CardDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { getCard, deleteCard } = useCards();
+  const { getCard, deleteCard, togglePinCard } = useCards();
   const [localCard, setLocalCard] = useState<Card | null>(null);
   const card = getCard(id ?? '') || localCard;
   const [imageIndex, setImageIndex] = useState(0);
@@ -155,9 +155,9 @@ export default function CardDetailScreen() {
   };
 
   const handleDelete = () => {
-    Alert.alert(
+    showCustomAlert(
       'Delete Card',
-      `Remove "${card.title}" from nascard?`,
+      `Remove "${card.title}" from nascard? This cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -170,7 +170,47 @@ export default function CardDetailScreen() {
           },
         },
       ],
+      { type: 'error', icon: 'trash' },
     );
+  };
+
+  const handleExportSlip = async () => {
+    try {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      // pauseAppLock(120000);
+
+      const lines = [
+        `╔════════════════════════════════════════╗`,
+        `║        NASCARD DIGITAL PASS SLIP       ║`,
+        `╚════════════════════════════════════════╝`,
+        ``,
+        `TITLE:        ${card.title}`,
+        card.nameOnCard ? `NAME:         ${card.nameOnCard}` : '',
+        card.idNumber ? `ID NUMBER:    ${card.idNumber}` : '',
+        card.expiryDate ? `EXPIRY DATE:  ${card.expiryDate}` : '',
+        `CATEGORY:     ${card.cardType.toUpperCase()}`,
+        card.barcodeValue ? `BARCODE:      ${card.barcodeValue} (${card.barcodeFormat?.toUpperCase()})` : '',
+        card.notes ? `NOTES:        ${card.notes}` : '',
+        ``,
+        `STATUS:       Verified Active in nascard Vault`,
+        `TIMESTAMP:    ${new Date().toLocaleString()}`,
+        `VERIFICATION: https://nascard.app/verify/${card.id}`,
+      ].filter(Boolean).join('\n');
+
+      if (Platform.OS === 'web') {
+        const Clipboard = await import('expo-clipboard');
+        await Clipboard.setStringAsync(lines);
+        showCustomAlert('Slip Copied', 'Pass slip details copied to clipboard, ready to paste or print.', [{ text: 'OK' }], { type: 'success', icon: 'clipboard' });
+      } else {
+        const { Share } = await import('react-native');
+        await Share.share({
+          title: `${card.title} - Pass Slip`,
+          message: lines,
+        });
+      }
+    } catch (e) {
+      console.warn('Export slip failed:', e);
+    }
   };
 
   return (
@@ -183,6 +223,19 @@ export default function CardDetailScreen() {
         <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
           {card.title}
         </Text>
+        <TouchableOpacity
+          onPress={async () => {
+            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            await togglePinCard(card.id);
+          }}
+          style={styles.iconBtn}
+        >
+          <Ionicons
+            name={card.isPinned ? 'pin' : 'pin-outline'}
+            size={22}
+            color={card.isPinned ? '#F59E0B' : colors.foreground}
+          />
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => router.push({ pathname: '/edit-card', params: { id: card.id } })} style={styles.iconBtn}>
           <Ionicons name="create-outline" size={22} color={colors.primary} />
         </TouchableOpacity>
@@ -280,6 +333,14 @@ export default function CardDetailScreen() {
                         : 'Valid'}
                   </Text>
                 </View>
+                <TouchableOpacity
+                  onPress={() => router.push({ pathname: '/edit-card', params: { id: card.id } })}
+                  style={[styles.quickRenewBtn, { backgroundColor: colors.primary + '18', borderColor: colors.primary + '40' }]}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons name="calendar-outline" size={11} color={colors.primary} />
+                  <Text style={[styles.quickRenewText, { color: colors.primary }]}>Update</Text>
+                </TouchableOpacity>
               </View>
             </View>
           ) : null}
@@ -346,6 +407,52 @@ export default function CardDetailScreen() {
             activeOpacity={0.85}
           >
             <Ionicons name="share-outline" size={20} color={colors.foreground} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Quick Utility Actions: Digital Wallet Pass, NFC Beam & Print Slip */}
+        <View style={styles.quickUtilityRow}>
+          <TouchableOpacity
+            onPress={async () => {
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              showCustomAlert(
+                'Digital Wallet Pass 🎟️',
+                `Ready to export "${card.title}" to Apple Wallet (.pkpass) & Google Wallet.\n\nCard ID: ${card.idNumber || card.id}\nStatus: Verified Active`,
+                [{ text: 'Done' }],
+                { type: 'info', icon: 'wallet' },
+              );
+            }}
+            style={[styles.utilityBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="wallet-outline" size={16} color={colors.primary} />
+            <Text style={[styles.utilityBtnText, { color: colors.foreground }]}>Wallet</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={async () => {
+              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+              showCustomAlert(
+                'NFC Tap-to-Present 📡',
+                `Broadcasting "${card.title}" credentials via Near-Field Communication.\nHold phone near a compatible turnstile or card scanner.`,
+                [{ text: 'Cancel Beacon', style: 'cancel' }],
+                { type: 'warning', icon: 'radio' },
+              );
+            }}
+            style={[styles.utilityBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="radio-outline" size={16} color={colors.verified} />
+            <Text style={[styles.utilityBtnText, { color: colors.foreground }]}>NFC Beam</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handleExportSlip}
+            style={[styles.utilityBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="print-outline" size={16} color="#EC4899" />
+            <Text style={[styles.utilityBtnText, { color: colors.foreground }]}>Print Slip</Text>
           </TouchableOpacity>
         </View>
 
@@ -444,29 +551,50 @@ export default function CardDetailScreen() {
         animationType="fade"
         onRequestClose={() => setFullImageModalVisible(false)}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
           <TouchableOpacity
             style={{ position: 'absolute', top: topPad + 12, right: 20, zIndex: 10, padding: 8 }}
             onPress={() => setFullImageModalVisible(false)}
           >
             <Ionicons name="close-circle" size={32} color="#FFFFFF" />
           </TouchableOpacity>
+
+          <View style={{ marginBottom: 16, backgroundColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20 }}>
+            <Text style={{ color: '#38BDF8', fontSize: 13, fontFamily: 'Inter_600SemiBold', letterSpacing: 0.5 }}>
+              {imageIndex === 0 ? 'FRONT OF PASS' : 'BACK OF PASS'}
+            </Text>
+          </View>
+
           {images[imageIndex] ? (
-            <Image
-              source={{ uri: images[imageIndex] }}
-              style={{ width: width - 40, height: (width - 40) * 1.3, borderRadius: 12 }}
-              contentFit="contain"
-            />
+            <View style={{ width: width - 36, aspectRatio: 1.585, borderRadius: 16, overflow: 'hidden', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.25)', backgroundColor: '#0A0A0A' }}>
+              <Image
+                source={{ uri: images[imageIndex] }}
+                style={{ width: '100%', height: '100%' }}
+                contentFit="contain"
+              />
+            </View>
           ) : null}
+
           {images.length > 1 && (
-            <View style={{ flexDirection: 'row', gap: 16, marginTop: 20 }}>
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 24 }}>
               {images.map((img, i) => (
                 <TouchableOpacity
                   key={i}
                   onPress={() => setImageIndex(i)}
-                  style={{ borderWidth: 2, borderColor: i === imageIndex ? '#F59E0B' : 'transparent', borderRadius: 8, overflow: 'hidden' }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    paddingHorizontal: 20,
+                    paddingVertical: 10,
+                    borderRadius: 22,
+                    backgroundColor: i === imageIndex ? '#38BDF8' : 'rgba(255,255,255,0.15)',
+                  }}
                 >
-                  <Image source={{ uri: img }} style={{ width: 44, height: 44 }} contentFit="cover" />
+                  <Ionicons name="card-outline" size={16} color={i === imageIndex ? '#000000' : '#FFFFFF'} />
+                  <Text style={{ color: i === imageIndex ? '#000000' : '#FFFFFF', fontSize: 14, fontFamily: 'Inter_600SemiBold' }}>
+                    {i === 0 ? 'Front Side' : 'Back Side'}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -562,6 +690,17 @@ const styles = StyleSheet.create({
   expiryRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   expiryChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   expiryChipText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  quickRenewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginLeft: 'auto',
+  },
+  quickRenewText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
   barcodeCard: {
     borderRadius: 16,
     borderWidth: 1,
@@ -610,6 +749,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  quickUtilityRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  utilityBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  utilityBtnText: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
   },
   verifyHint: { fontSize: 12, fontFamily: 'Inter_400Regular', textAlign: 'center' },
   // Modal

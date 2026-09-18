@@ -225,7 +225,7 @@ app.get("/terms-of-service", (_req, res) => {
   <p>nascard is provided "as is" without warranties of any kind. Septnova shall not be liable for data loss resulting from device failure or user error.</p>
 
   <h2>6. Contact</h2>
-  <p>Questions? Email <a href="mailto:legal@septnova.com" style="color:#58A6FF">legal@septnova.com</a></p>
+  <p>Questions? Email <a href="mailto:septnova.contact@gmail.com" style="color:#58A6FF">septnova.contact@gmail.com</a></p>
 
   <footer>&copy; ${new Date().getFullYear()} Septnova Ltd. All rights reserved.</footer>
 </body>

@@ -119,21 +119,25 @@ export const WalletCard3D = React.memo(function WalletCard3D({ card, onPress, is
   }
 
   // Dynamically partition custom fields: top 2 fields on front, remaining on back
-  if (card.customFields) {
-    const entries = Object.entries(card.customFields).filter(([_, v]) => Boolean(v));
-    const maxFrontCustom = 2; // Always keep clean 2 items on front so ledger never overflows
+  if (card.customFields && typeof card.customFields === 'object' && !Array.isArray(card.customFields)) {
+    try {
+      const entries = Object.entries(card.customFields).filter(([_, v]) => Boolean(v));
+      const maxFrontCustom = 2; // Always keep clean 2 items on front so ledger never overflows
 
-    entries.forEach(([k, v], idx) => {
-      const field = {
-        label: k.toUpperCase().replace(/_/g, ' ').slice(0, 14),
-        value: isMasked ? '••••••' : String(v).slice(0, 20),
-      };
-      if (frontFields.length < (maxFrontCustom + (card.idNumber ? 1 : 0) + (card.expiryDate ? 1 : 0))) {
-        frontFields.push(field);
-      } else {
-        backFields.push(field);
-      }
-    });
+      entries.forEach(([k, v], idx) => {
+        const field = {
+          label: k.toUpperCase().replace(/_/g, ' ').slice(0, 14),
+          value: isMasked ? '••••••' : String(v).slice(0, 20),
+        };
+        if (frontFields.length < (maxFrontCustom + (card.idNumber ? 1 : 0) + (card.expiryDate ? 1 : 0))) {
+          frontFields.push(field);
+        } else {
+          backFields.push(field);
+        }
+      });
+    } catch {
+      // Malformed customFields — skip rendering them rather than crashing
+    }
   }
 
   return (
@@ -155,10 +159,10 @@ export const WalletCard3D = React.memo(function WalletCard3D({ card, onPress, is
           {isPhysicalDoc && photoSource ? (
             <>
               <Image source={photoSource} style={StyleSheet.absoluteFillObject} contentFit="cover" />
-              <LinearGradient
-                colors={['rgba(7,11,22,0.72)', 'rgba(7,11,22,0.85)', 'rgba(4,7,17,0.92)']}
+              {/* <LinearGradient
+                colors={['rgba(171, 172, 175, 0.72)', 'rgba(157, 159, 161, 0.85)', 'rgba(160, 162, 168, 0.92)']}
                 style={StyleSheet.absoluteFillObject}
-              />
+              /> */}
             </>
           ) : (
             <LinearGradient
@@ -185,33 +189,35 @@ export const WalletCard3D = React.memo(function WalletCard3D({ card, onPress, is
           />
 
           {/* Top Brand Color Strip */}
-          <View style={[styles.topBrandStripe, { backgroundColor: accent }]} />
+          {!isPhysicalDoc && <View style={[styles.topBrandStripe, { backgroundColor: accent }]} />}
 
           {/* ── CARD CONTENT LAYER ── */}
           <View style={styles.cardContent}>
             
             {/* 1. TOP HEADER: Org / Category / Verified Seal */}
-            <View style={styles.headerRow}>
-              <View style={styles.brandLeft}>
-                {card.logoUri ? (
-                  <View style={[styles.logoWrap, { borderColor: accent + '40' }]}>
-                    <Image source={{ uri: card.logoUri }} style={styles.logoImg} contentFit="contain" />
-                  </View>
-                ) : (
-                  <View style={[styles.logoPlaceholder, { backgroundColor: accent + '25', borderColor: accent + '50' }]}>
-                    <Ionicons name={theme.icon} size={13} color={accent} />
-                  </View>
-                )}
+            <View style={[styles.headerRow, isPhysicalDoc && { justifyContent: 'flex-end' }]}>
+              {!isPhysicalDoc && (
+                <View style={styles.brandLeft}>
+                  {card.logoUri ? (
+                    <View style={[styles.logoWrap, { borderColor: accent + '40' }]}>
+                      <Image source={{ uri: card.logoUri }} style={styles.logoImg} contentFit="contain" />
+                    </View>
+                  ) : (
+                    <View style={[styles.logoPlaceholder, { backgroundColor: accent + '25', borderColor: accent + '50' }]}>
+                      <Ionicons name={theme.icon} size={13} color={accent} />
+                    </View>
+                  )}
 
-                <View>
-                  <Text style={styles.orgNameText} numberOfLines={1}>
-                    {(card.orgName || card.title || 'NASCARD').toUpperCase()}
-                  </Text>
-                  <Text style={[styles.categoryTag, { color: accent }]}>
-                    {(card.cardType || 'MEMBERSHIP').toUpperCase()}
-                  </Text>
+                  <View>
+                    <Text style={styles.orgNameText} numberOfLines={1}>
+                      {(card.orgName || card.title || 'NASCARD').toUpperCase()}
+                    </Text>
+                    <Text style={[styles.categoryTag, { color: accent }]}>
+                      {(card.cardType || 'MEMBERSHIP').toUpperCase()}
+                    </Text>
+                  </View>
                 </View>
-              </View>
+              )}
 
               {/* Badges: Verified / Digitized / Pinned */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
@@ -227,9 +233,9 @@ export const WalletCard3D = React.memo(function WalletCard3D({ card, onPress, is
                     <Text style={[styles.verifiedText, { color: accent }]}>OFFICIAL ✓</Text>
                   </View>
                 ) : isPhysicalDoc ? (
-                  <View style={styles.photoDocBadge}>
-                    <Ionicons name="camera" size={9} color="#FFFFFF" />
-                    <Text style={styles.photoDocText}>DIGITIZED</Text>
+                  <View style={[styles.photoDocBadge, { backgroundColor: 'rgba(0,0,0,0.65)', borderColor: 'rgba(255,255,255,0.3)', borderWidth: 1 }]}>
+                    <Ionicons name="camera" size={9} color="#38BDF8" />
+                    <Text style={[styles.photoDocText, { color: '#38BDF8' }]}>PHOTO PASS</Text>
                   </View>
                 ) : null}
               </View>
@@ -387,14 +393,14 @@ export const WalletCard3D = React.memo(function WalletCard3D({ card, onPress, is
                   <Text style={styles.flipBtnText}>FLIP</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity
+                {/* <TouchableOpacity
                   onPress={() => setIsMasked(!isMasked)}
                   style={styles.actionBtn}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   accessibilityLabel="Toggle mask ID"
                 >
                   <Ionicons name={isMasked ? 'eye-off-outline' : 'eye-outline'} size={13} color="rgba(255,255,255,0.75)" />
-                </TouchableOpacity>
+                </TouchableOpacity> */}
               </View>
             </View>
 

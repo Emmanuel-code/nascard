@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
+  Easing,
   Modal,
   Platform,
   StyleSheet,
@@ -27,14 +29,44 @@ export function SecurityQRModal({ card, visible, onClose }: SecurityQRModalProps
   const insets = useSafeAreaInsets();
   const [timeLeft, setTimeLeft] = useState(TOTAL_TTL);
   const [tokenSeed, setTokenSeed] = useState(Date.now());
+  const [liveTime, setLiveTime] = useState(new Date());
 
-  // Timer countdown & auto-refresh token seed every 60s
+  // Holographic security sweep animation
+  const sweepAnim = useRef(new Animated.Value(0)).current;
+  const pulseBadge = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (!visible) return;
+    const sweepLoop = Animated.loop(
+      Animated.timing(sweepAnim, {
+        toValue: 1,
+        duration: 2400,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    );
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseBadge, { toValue: 1.08, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseBadge, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ])
+    );
+    sweepLoop.start();
+    pulseLoop.start();
+    return () => {
+      sweepLoop.stop();
+      pulseLoop.stop();
+    };
+  }, [visible, sweepAnim, pulseBadge]);
+
+  // Timer countdown & auto-refresh token seed every 60s + live second tick
   useEffect(() => {
     if (!visible || !card) return;
     setTimeLeft(TOTAL_TTL);
     setTokenSeed(Date.now());
 
     const interval = setInterval(() => {
+      setLiveTime(new Date());
       setTimeLeft((prev) => {
         if (prev <= 1) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -68,6 +100,10 @@ export function SecurityQRModal({ card, visible, onClose }: SecurityQRModalProps
 
   const progressPercent = Math.max(0, Math.min(100, (timeLeft / TOTAL_TTL) * 100));
   const topPad = Platform.OS === 'web' ? 20 : insets.top;
+  const sweepTranslateX = sweepAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-250, 250],
+  });
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -92,12 +128,32 @@ export function SecurityQRModal({ card, visible, onClose }: SecurityQRModalProps
             </TouchableOpacity>
           </View>
 
-          {/* QR Display Frame */}
+          {/* Live Anti-Screenshot Authenticity Banner */}
+          <View style={[styles.liveBadgeRow, { backgroundColor: colors.primary + '14', borderColor: colors.primary + '35' }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Animated.View style={[styles.pulseDot, { transform: [{ scale: pulseBadge }] }]} />
+              <Text style={[styles.liveBadgeText, { color: colors.primary }]}>LIVE ANTI-SCREENSHOT PASS</Text>
+            </View>
+            <Text style={[styles.liveClockText, { color: colors.foreground }]}>
+              {liveTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </Text>
+          </View>
+
+          {/* QR Display Frame with Holographic Security Sweep */}
           <View style={[styles.qrContainer, { backgroundColor: '#FFFFFF', borderColor: colors.border }]}>
             <QRCode value={zkPayload} size={210} color="#0F172A" backgroundColor="#FFFFFF" />
             <View style={styles.logoWatermark}>
-              <Ionicons name="checkmark-shield" size={20} color={colors.primary} />
+              <Ionicons name="shield-checkmark" size={20} color={colors.primary} />
             </View>
+
+            {/* Dynamic Holographic Sweep Beam */}
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.holographicBeam,
+                { transform: [{ translateX: sweepTranslateX }, { rotate: '25deg' }] },
+              ]}
+            />
           </View>
 
           {/* 60s Countdown Timer Bar */}
@@ -170,6 +226,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  closeBtn: {
+    padding: 6,
+    borderRadius: 8,
+  },
   badgeIcon: {
     width: 36,
     height: 36,
@@ -179,18 +239,53 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 17, fontFamily: 'Inter_700Bold' },
   modalSub: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 1 },
-  closeBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  liveBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  pulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10B981',
+  },
+  liveBadgeText: {
+    fontSize: 10,
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: 0.8,
+  },
+  liveClockText: {
+    fontSize: 11,
+    fontFamily: 'Inter_600SemiBold',
+    letterSpacing: 0.5,
+  },
   qrContainer: {
     alignSelf: 'center',
     padding: 18,
     borderRadius: 20,
     borderWidth: 1,
     position: 'relative',
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 10,
     elevation: 4,
+  },
+  holographicBeam: {
+    position: 'absolute',
+    top: -60,
+    bottom: -60,
+    width: 44,
+    backgroundColor: 'rgba(255, 255, 255, 0.42)',
+    shadowColor: '#FFFFFF',
+    shadowOpacity: 0.6,
+    shadowRadius: 14,
   },
   logoWatermark: {
     position: 'absolute',

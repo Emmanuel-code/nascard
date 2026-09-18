@@ -7,7 +7,9 @@
     "dev": "EXPO_PACKAGER_PROXY_URL=https://$REPLIT_EXPO_DEV_DOMAIN EXPO_PUBLIC_DOMAIN=$REPLIT_DEV_DOMAIN EXPO_PUBLIC_REPL_ID=$REPL_ID REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_DEV_DOMAIN pnpm exec expo start --localhost --port $PORT",
     "build": "node scripts/build.js",
     "serve": "node server/serve.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
@@ -60,18 +62,24 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
+    "@react-native-ml-kit/text-recognition": "^2.0.0",
     "@supabase/supabase-js": "^2.116.0",
     "crypto-js": "^4.2.0",
+    "expo": "~54.0.34",
     "expo-build-properties": "~0.13.2",
     "expo-camera": "~17.0.10",
     "expo-clipboard": "^8.0.8",
     "expo-crypto": "~15.0.9",
     "expo-document-picker": "~14.0.8",
     "expo-file-system": "^19.0.22",
+    "expo-image-manipulator": "~14.0.8",
     "expo-local-authentication": "^17.0.8",
     "expo-notifications": "^0.32.17",
     "expo-sharing": "^14.0.8",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
     "react-native-barcode-svg": "^0.0.15",
+    "react-native-document-scanner-plugin": "^2.0.4",
     "react-native-qrcode-svg": "^6.3.21",
     "react-native-webview": "^13.12.5"
   }

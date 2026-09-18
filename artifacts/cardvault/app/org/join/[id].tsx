@@ -20,6 +20,7 @@ import type { Organization } from '@/types/card';
 
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
+import { pauseAppLock } from '@/lib/appLock';
 
 export default function MemberJoinScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -40,6 +41,7 @@ export default function MemberJoinScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handlePickPhoto = async () => {
+    pauseAppLock(180000);
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert('Permission Needed', 'nascard needs camera roll access to let you upload a photo for your card.');

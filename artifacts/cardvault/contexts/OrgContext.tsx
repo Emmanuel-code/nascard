@@ -221,7 +221,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
       const local = managedOrgs.find(
         (o) =>
           o.id.toLowerCase() === idOrInvite.toLowerCase() ||
-          o.inviteCode.toLowerCase() === idOrInvite.toLowerCase(),
+          o.inviteCode?.toLowerCase() === idOrInvite.toLowerCase(),
       );
       if (local) return local;
 

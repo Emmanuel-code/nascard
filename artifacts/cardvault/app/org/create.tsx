@@ -20,6 +20,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CustomFieldSchema, THEME_PRESETS, useOrg } from '@/contexts/OrgContext';
 import { useColors } from '@/hooks/useColors';
+import { pauseAppLock } from '@/lib/appLock';
 
 export default function CreateOrgScreen() {
   const colors = useColors();
@@ -125,6 +126,7 @@ export default function CreateOrgScreen() {
 
   const handlePickLogo = async () => {
     try {
+      pauseAppLock(180000);
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
         Alert.alert('Permission required', 'Photo library permission is needed to upload your logo.');

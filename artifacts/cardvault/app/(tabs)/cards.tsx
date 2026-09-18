@@ -31,6 +31,14 @@ const FILTERS: { key: CardType | 'all'; label: string; icon: string }[] = [
   { key: 'loyalty', label: 'Loyalty', icon: 'gift-outline' },
 ];
 
+type SortOption = 'recent' | 'name' | 'expiry';
+
+const SORT_OPTIONS: { key: SortOption; label: string; icon: string }[] = [
+  { key: 'recent', label: 'Recent', icon: 'time-outline' },
+  { key: 'name', label: 'A-Z', icon: 'text-outline' },
+  { key: 'expiry', label: 'Expiry', icon: 'hourglass-outline' },
+];
+
 const CARD_TYPE_GRADIENTS: Record<string, [string, string]> = {
   id: ['#0F172A', '#1E293B'],
   membership: ['#1E3A8A', '#0F172A'],
@@ -47,9 +55,10 @@ export default function CardsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { cards, isLoading, clearSampleCards } = useCards();
+  const { cards, isLoading, clearSampleCards, togglePinCard } = useCards();
   const { isPro } = usePro();
   const [filter, setFilter] = useState<CardType | 'all'>('all');
+  const [sortBy, setSortBy] = useState<SortOption>('recent');
   const [searchQuery, setSearchQuery] = useState('');
   const [paywallVisible, setPaywallVisible] = useState(false);
 
@@ -66,15 +75,33 @@ export default function CardsScreen() {
 
   const filtered = useMemo(() => {
     let pool = filter === 'all' ? cards : cards.filter((c) => c.cardType === filter);
-    if (!searchQuery.trim()) return pool;
-    const q = searchQuery.toLowerCase().trim();
-    return pool.filter(
-      (c) =>
-        c.title.toLowerCase().includes(q) ||
-        (c.nameOnCard && c.nameOnCard.toLowerCase().includes(q)) ||
-        (c.idNumber && c.idNumber.toLowerCase().includes(q)),
-    );
-  }, [cards, filter, searchQuery]);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      pool = pool.filter(
+        (c) =>
+          c.title.toLowerCase().includes(q) ||
+          (c.nameOnCard && c.nameOnCard.toLowerCase().includes(q)) ||
+          (c.idNumber && c.idNumber.toLowerCase().includes(q)),
+      );
+    }
+    const copy = [...pool];
+    if (sortBy === 'name') {
+      return copy.sort((a, b) => a.title.localeCompare(b.title));
+    }
+    if (sortBy === 'expiry') {
+      return copy.sort((a, b) => {
+        if (!a.expiryDate && !b.expiryDate) return 0;
+        if (!a.expiryDate) return 1;
+        if (!b.expiryDate) return -1;
+        return new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime();
+      });
+    }
+    return copy.sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    });
+  }, [cards, filter, searchQuery, sortBy]);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
@@ -211,6 +238,45 @@ export default function CardsScreen() {
         />
       </View>
 
+      {/* Quick Sort Bar */}
+      <View style={styles.sortBar}>
+        <Text style={[styles.sortLabel, { color: colors.mutedForeground }]}>Sort:</Text>
+        <View style={[styles.sortRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {SORT_OPTIONS.map((opt) => {
+            const active = sortBy === opt.key;
+            return (
+              <TouchableOpacity
+                key={opt.key}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setSortBy(opt.key);
+                }}
+                style={[
+                  styles.sortChip,
+                  active && { backgroundColor: colors.primary },
+                ]}
+                activeOpacity={0.75}
+              >
+                <Ionicons
+                  name={opt.icon as any}
+                  size={12}
+                  color={active ? colors.primaryForeground : colors.mutedForeground}
+                />
+                <Text
+                  style={[
+                    styles.sortChipText,
+                    { color: active ? colors.primaryForeground : colors.mutedForeground },
+                    active && { fontFamily: 'Inter_600SemiBold' },
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
       {/* Rich 3D Cards List */}
       <FlatList
         data={filtered}
@@ -234,7 +300,11 @@ export default function CardsScreen() {
           ) : null
         }
         renderItem={({ item }) => (
-          <LuxuryCardTile card={item} onPress={() => router.push(`/card/${item.id}`)} />
+          <LuxuryCardTile
+            card={item}
+            onPress={() => router.push(`/card/${item.id}`)}
+            onTogglePin={() => togglePinCard(item.id)}
+          />
         )}
       />
     </View>
@@ -242,7 +312,15 @@ export default function CardsScreen() {
 }
 
 /** Luxury Card Tile for All Cards Screen */
-function LuxuryCardTile({ card, onPress }: { card: Card; onPress: () => void }) {
+function LuxuryCardTile({
+  card,
+  onPress,
+  onTogglePin,
+}: {
+  card: Card;
+  onPress: () => void;
+  onTogglePin?: () => void;
+}) {
   const colors = useColors();
   const [bg1, bg2] = CARD_TYPE_GRADIENTS[card.cardType] || CARD_TYPE_GRADIENTS.id;
   const status = getExpiryStatus(card.expiryDate);
@@ -285,6 +363,24 @@ function LuxuryCardTile({ card, onPress }: { card: Card; onPress: () => void }) 
                 {(card.orgName || card.cardType).toUpperCase()}
               </Text>
             </View>
+
+            {onTogglePin && (
+              <TouchableOpacity
+                onPress={async (e) => {
+                  e.stopPropagation?.();
+                  await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onTogglePin();
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={{ marginRight: 6, opacity: card.isPinned ? 1 : 0.45 }}
+              >
+                <Ionicons
+                  name={card.isPinned ? 'pin' : 'pin-outline'}
+                  size={14}
+                  color={card.isPinned ? '#F59E0B' : '#FFFFFF'}
+                />
+              </TouchableOpacity>
+            )}
 
             {card.isPartnerIssued ? (
               <View style={styles.tileVerifiedBadge}>
@@ -399,6 +495,39 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   filterText: { fontSize: 13 },
+  sortBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 8,
+    gap: 8,
+  },
+  sortLabel: {
+    fontSize: 11,
+    fontFamily: 'Inter_600SemiBold',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  sortRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 2,
+    gap: 2,
+  },
+  sortChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  sortChipText: {
+    fontSize: 11,
+    fontFamily: 'Inter_500Medium',
+  },
   list: { paddingHorizontal: 20, paddingTop: 6, gap: 14 },
   emptyCard: {
     padding: 32,

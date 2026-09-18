@@ -3,9 +3,10 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import TextRecognition from '@react-native-ml-kit/text-recognition';
 import { BarcodeScanner, mapBarcodeType } from '@/components/BarcodeScanner';
-import type { BarcodeResult } from '@/components/BarcodeScanner';
+import type { BarcodeResult, ScannerMode } from '@/components/BarcodeScanner';
 import {
   ActivityIndicator,
   Alert,
@@ -24,6 +25,7 @@ import { useCards } from '@/contexts/CardContext';
 import { useProfile } from '@/contexts/ProfileContext';
 import { usePro } from '@/contexts/ProContext';
 import { useColors } from '@/hooks/useColors';
+import { pauseAppLock } from '@/lib/appLock';
 
 import type { CardType } from '@/types/card';
 
@@ -56,67 +58,343 @@ interface FormData {
 }
 
 type OcrStatus = 'idle' | 'scanning' | 'done' | 'failed';
+type OcrFailReason = 'no-key' | 'scan-failed' | null;
+
+const OCR_LOG_PREFIX = '[cardOcr]';
+
+interface SpatialLine {
+  text: string;
+  cleanText: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  centerX: number;
+  centerY: number;
+}
+
+// Multi-language anchor label dictionary for global identity documents
+const GLOBAL_ANCHORS = {
+  expiry: [
+    'EXP', 'EXPIRES', 'EXPIRY', 'VALID', 'VALIDE', 'VENCIMIENTO', 'VALIDEZ',
+    'ABLAUF', 'GÜLTIG', 'VALI', 'FIN', 'UNTIL', 'HASTA', 'THRU', 'EXPIRE'
+  ],
+  name: [
+    'NAME', 'NOM', 'NOMBRE', 'CARDHOLDER', 'TITULAIRE', 'TITULAR',
+    'FULL NAME', 'NOMBRES', 'APELLIDOS', 'SURNAME', 'GIVEN'
+  ],
+  id: [
+    'ID', 'NO', 'NUMBER', 'NUMERO', 'NUMÉRO', 'DOC', 'DOCUMENT', 'CARD NO',
+    'N°', 'CÉDULA', 'DNI', 'NIE', 'NATIONAL ID', 'LICENCE', 'LICENSE'
+  ]
+};
+
+function parseGlobalDate(text: string): string {
+  const clean = text.replace(/O/gi, '0').replace(/I/gi, '1');
+
+  // Match YYYY-MM-DD or YYYY/MM/DD
+  const isoMatch = clean.match(/\b(20\d{2})[-/.](0[1-9]|1[0-2])[-/.](0[1-9]|[12]\d|3[01])\b/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+
+  // Match DD/MM/YYYY or DD.MM.YYYY (European / Global)
+  const euMatch = clean.match(/\b(0[1-9]|[12]\d|3[01])[-/.](0[1-9]|1[0-2])[-/.](20\d{2})\b/);
+  if (euMatch) return `${euMatch[3]}-${euMatch[2]}-${euMatch[1]}`;
+
+  // Match MM/YY or MM/YYYY
+  const shortMatch = clean.match(/\b(0[1-9]|1[0-2])[-/.](\d{2}|\d{4})\b/);
+  if (shortMatch) {
+    const yr = shortMatch[2].length === 2 ? `20${shortMatch[2]}` : shortMatch[2];
+    return `${yr}-${shortMatch[1]}-28`;
+  }
+
+  return '';
+}
+
+function findNearestSpatialCandidate(
+  anchorLine: SpatialLine,
+  allLines: SpatialLine[],
+  validator: (text: string) => boolean,
+): SpatialLine | null {
+  let bestCandidate: SpatialLine | null = null;
+  let minDistance = Infinity;
+
+  for (const candidate of allLines) {
+    if (candidate === anchorLine) continue;
+
+    const dx = candidate.x - (anchorLine.x + anchorLine.width);
+    const dy = candidate.y - (anchorLine.y + anchorLine.height);
+    const alignX = Math.abs(candidate.x - anchorLine.x);
+
+    const isToRight = Math.abs(candidate.centerY - anchorLine.centerY) < 15 && dx >= -10 && dx < 220;
+    const isBelow = dy >= -5 && dy < 45 && alignX < 120;
+
+    if ((isToRight || isBelow) && validator(candidate.cleanText)) {
+      const dist = isToRight ? Math.abs(dx) : Math.abs(dy);
+      if (dist < minDistance) {
+        minDistance = dist;
+        bestCandidate = candidate;
+      }
+    }
+  }
+
+  return bestCandidate;
+}
+
+/**
+ * ⚡ GLOBAL SPATIAL ON-DEVICE OCR ENGINE
+ */
+async function scanCardGlobally(imageUri: string): Promise<{ title: string; nameOnCard: string; idNumber: string; expiryDate: string } | null> {
+  if (Platform.OS === 'web') return null;
+
+  try {
+    const startedAt = Date.now();
+    const result = await TextRecognition.recognize(imageUri);
+    if (!result || !result.text) return null;
+
+    const spatialLines: SpatialLine[] = result.blocks.flatMap((b) =>
+      b.lines.map((l) => {
+        const x = l.frame?.left ?? 0;
+        const y = l.frame?.top ?? 0;
+        const width = l.frame?.width ?? 0;
+        const height = l.frame?.height ?? 0;
+        return {
+          text: l.text.trim(),
+          cleanText: l.text.trim().toUpperCase(),
+          x,
+          y,
+          width,
+          height,
+          centerX: x + width / 2,
+          centerY: y + height / 2,
+        };
+      }),
+    );
+
+    let title = '';
+    let nameOnCard = '';
+    let idNumber = '';
+    let expiryDate = '';
+
+    // 1. EXPIRY DATE EXTRACTION (Anchor-Driven + Spatial Vectoring)
+    const expiryAnchors = spatialLines.filter((l) =>
+      GLOBAL_ANCHORS.expiry.some((kw) => l.cleanText.includes(kw)),
+    );
+
+    for (const anchor of expiryAnchors) {
+      const candidate = findNearestSpatialCandidate(anchor, spatialLines, (txt) =>
+        /\d/.test(txt) && parseGlobalDate(txt) !== '',
+      );
+      if (candidate) {
+        expiryDate = parseGlobalDate(candidate.cleanText);
+        break;
+      }
+    }
+
+    if (!expiryDate) {
+      for (const line of spatialLines) {
+        const parsed = parseGlobalDate(line.cleanText);
+        if (parsed) {
+          expiryDate = parsed;
+          break;
+        }
+      }
+    }
+
+    // 2. ID NUMBER EXTRACTION (MRZ / Global Regex / Spatial Anchors)
+    const mrzMatch = result.text.match(/([A-Z0-9<]{9,12})/);
+    const ghaMatch = result.text.match(/GHA-\d{9}-\d/i);
+
+    if (ghaMatch) {
+      idNumber = ghaMatch[0].toUpperCase();
+    } else if (mrzMatch && mrzMatch[1].replace(/</g, '').length >= 8) {
+      idNumber = mrzMatch[1].replace(/</g, '');
+    } else {
+      const idAnchors = spatialLines.filter((l) =>
+        GLOBAL_ANCHORS.id.some((kw) => l.cleanText.includes(kw)),
+      );
+
+      for (const anchor of idAnchors) {
+        const candidate = findNearestSpatialCandidate(anchor, spatialLines, (txt) =>
+          /[A-Z0-9]{4,}/.test(txt) && !GLOBAL_ANCHORS.id.some((kw) => txt.includes(kw)),
+        );
+        if (candidate) {
+          idNumber = candidate.cleanText;
+          break;
+        }
+      }
+    }
+
+    // 3. NAME ON CARD EXTRACTION (Spatial Pair relative to "NAME" label)
+    const nameAnchors = spatialLines.filter((l) =>
+      GLOBAL_ANCHORS.name.some((kw) => l.cleanText.includes(kw)),
+    );
+
+    for (const anchor of nameAnchors) {
+      const candidate = findNearestSpatialCandidate(anchor, spatialLines, (txt) =>
+        !/\d/.test(txt) &&
+        txt.length > 3 &&
+        !GLOBAL_ANCHORS.name.some((kw) => txt.includes(kw)),
+      );
+      if (candidate) {
+        nameOnCard = candidate.text;
+        break;
+      }
+    }
+
+    // 4. TITLE EXTRACTION (Top Most Bounding Box)
+    const topLines = [...spatialLines].sort((a, b) => a.y - b.y);
+    if (topLines.length > 0) {
+      const headerLine = topLines.find(
+        (l) => l.text !== nameOnCard && l.cleanText !== idNumber && !/\d{4}/.test(l.cleanText),
+      );
+      if (headerLine) {
+        title = headerLine.text;
+      }
+    }
+
+    console.log(`${OCR_LOG_PREFIX} Global spatial OCR ok in ${Date.now() - startedAt}ms`);
+
+    if (title || nameOnCard || idNumber || expiryDate) {
+      return {
+        title: title || 'Scanned Card',
+        nameOnCard: nameOnCard || '',
+        idNumber: idNumber || '',
+        expiryDate: expiryDate || '',
+      };
+    }
+    return null;
+  } catch (err) {
+    console.warn(`${OCR_LOG_PREFIX} Global spatial parsing error:`, err);
+    return null;
+  }
+}
 
 async function uriToBase64(uri: string): Promise<string> {
-  // On web, expo-image-picker returns a data URI; extract the base64 part
   if (uri.startsWith('data:')) {
     return uri.split(',')[1] ?? '';
   }
-  // On native, read the file using expo-file-system
-  const FileSystem = await import('expo-file-system');
-  return FileSystem.readAsStringAsync(uri, { encoding: 'base64' as any });
+  try {
+    const LegacyFS = await import('expo-file-system/legacy');
+    return await LegacyFS.readAsStringAsync(uri, { encoding: LegacyFS.EncodingType?.Base64 ?? 'base64' });
+  } catch {
+    const FileSystem = await import('expo-file-system');
+    return await (FileSystem as any).readAsStringAsync(uri, { encoding: 'base64' });
+  }
+}
+
+async function scanWithGeminiVision(
+  imageBase64: string,
+  cardType: CardType,
+  apiKey: string,
+): Promise<{ title: string; nameOnCard: string; idNumber: string; expiryDate: string } | null> {
+  const prompt = `You are an AI card scanner assistant. Analyze this card image and extract:
+1. "title": Card title or issuer (e.g. Ghana National ID, NHIS Health Card, Driver License, KNUST Student Card, Gym Pass)
+2. "nameOnCard": Full name of the cardholder printed on the card
+3. "idNumber": The primary identification/card number
+4. "expiryDate": The expiration date in YYYY-MM-DD format (or empty string if not found)
+
+Return ONLY a raw JSON object with keys: "title", "nameOnCard", "idNumber", "expiryDate". Do not include markdown code blocks or explanations.`;
+
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+
+  for (const model of models) {
+    const startedAt = Date.now();
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: prompt },
+                  {
+                    inline_data: {
+                      mime_type: 'image/jpeg',
+                      data: imageBase64,
+                    },
+                  },
+                ],
+              },
+            ],
+          }),
+          signal: controller.signal,
+        },
+      );
+      clearTimeout(timeout);
+
+      if (res.ok) {
+        const data = await res.json();
+        const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+
+        const fenceStripped = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+        const braceMatch = fenceStripped.match(/\{[\s\S]*\}/);
+        const clean = braceMatch ? braceMatch[0] : fenceStripped;
+
+        try {
+          const parsed = JSON.parse(clean);
+          console.log(`${OCR_LOG_PREFIX} Gemini (${model}) ok in ${Date.now() - startedAt}ms`);
+          return {
+            title: parsed.title || '',
+            nameOnCard: parsed.nameOnCard || '',
+            idNumber: parsed.idNumber || '',
+            expiryDate: parsed.expiryDate || '',
+          };
+        } catch (parseErr) {
+          console.warn(`${OCR_LOG_PREFIX} Gemini (${model}) returned unparseable JSON`);
+        }
+      }
+    } catch (e) {
+      console.warn(`${OCR_LOG_PREFIX} Gemini (${model}) failed or timed out`);
+    }
+  }
+
+  return null;
+}
+
+interface ScanCardResult {
+  title: string;
+  nameOnCard: string;
+  idNumber: string;
+  expiryDate: string;
+  failReason?: OcrFailReason;
 }
 
 async function scanCardImage(
   imageUri: string,
   cardType: CardType,
-): Promise<{ title: string; nameOnCard: string; idNumber: string; expiryDate: string }> {
-  try {
-    const base64 = await uriToBase64(imageUri);
-    if (!base64) return { title: 'Personal Pass', nameOnCard: '', idNumber: '', expiryDate: '' };
+  userApiKey?: string,
+): Promise<ScanCardResult> {
+  const emptyResult: ScanCardResult = { title: '', nameOnCard: '', idNumber: '', expiryDate: '' };
+  const geminiKey = userApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 
-    let apiBase = process.env.EXPO_PUBLIC_DOMAIN || '';
-    if (apiBase) {
-      if (!apiBase.startsWith('http://') && !apiBase.startsWith('https://')) {
-        apiBase = `https://${apiBase}`;
-      }
-    } else {
-      apiBase = Platform.OS === 'android' ? 'http://10.0.2.2:8080' : 'http://localhost:8080';
-    }
-
-    const res = await fetch(`${apiBase}/api/ocr/scan-card`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageBase64: base64, cardType }),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      if (data && (data.title || data.nameOnCard || data.idNumber)) {
-        return data;
-      }
-    }
-  } catch (e) {
-    console.warn('AI OCR scan network error, using smart pattern extractor:', e);
+  // 1. Stage 1: Global Spatial On-Device Engine (Zero latency)
+  const spatialResult = await scanCardGlobally(imageUri);
+  if (spatialResult && (spatialResult.idNumber || spatialResult.nameOnCard || spatialResult.title)) {
+    return spatialResult;
   }
 
-  // Smart local pattern extractor fallback
-  const mockId = `GHA-${Math.floor(100000000 + Math.random() * 900000000)}-${Math.floor(1 + Math.random() * 9)}`;
-  const defaultTitle =
-    cardType === 'id'
-      ? 'National Identity Card'
-      : cardType === 'health'
-      ? 'Health Insurance Pass'
-      : cardType === 'membership'
-      ? 'Member Pass'
-      : 'Loyalty Reward Pass';
+  // 2. Stage 2: Fallback Cloud Multimodal AI
+  if (geminiKey) {
+    try {
+      const base64 = await uriToBase64(imageUri);
+      if (base64) {
+        const geminiResult = await scanWithGeminiVision(base64, cardType, geminiKey);
+        if (geminiResult && (geminiResult.title || geminiResult.nameOnCard || geminiResult.idNumber)) {
+          return geminiResult;
+        }
+      }
+    } catch (err) {
+      console.warn(`${OCR_LOG_PREFIX} Gemini fallback failed:`, err);
+    }
+  }
 
-  return {
-    title: defaultTitle,
-    nameOnCard: '',
-    idNumber: mockId,
-    expiryDate: new Date(Date.now() + 365 * 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]!,
-  };
+  return { ...emptyResult, failReason: geminiKey ? 'scan-failed' : 'no-key' };
 }
 
 export default function AddCardScreen() {
@@ -132,8 +410,13 @@ export default function AddCardScreen() {
   const { autoScan } = useLocalSearchParams<{ autoScan?: string }>();
   const [step, setStep] = useState(1);
   const [ocrStatus, setOcrStatus] = useState<OcrStatus>('idle');
+  const [ocrFailReason, setOcrFailReason] = useState<OcrFailReason>(null);
   const [showScanner, setShowScanner] = useState(autoScan === 'true');
+  const [scannerMode, setScannerMode] = useState<ScannerMode>('card_photo');
+  const [scannerTarget, setScannerTarget] = useState<'front' | 'back'>('front');
   const [barcodeScanned, setBarcodeScanned] = useState(false);
+  const step1ScrollRef = useRef<any>(null);
+  const pendingScrollFix = useRef(false);
 
   const [form, setForm] = useState<FormData>({
     cardType: 'id',
@@ -152,6 +435,7 @@ export default function AddCardScreen() {
 
   const pickImage = async (source: 'camera' | 'gallery'): Promise<string | null> => {
     try {
+      pauseAppLock(180000);
       let result;
       if (source === 'camera') {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -197,6 +481,8 @@ export default function AddCardScreen() {
             ? 'Membership Card'
             : 'Personal Card';
 
+    pendingScrollFix.current = true;
+
     setForm((f: any) => ({
       ...f,
       frontImageUri: uri,
@@ -204,11 +490,12 @@ export default function AddCardScreen() {
     }));
 
     setOcrStatus('scanning');
+    setOcrFailReason(null);
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    const result = await scanCardImage(uri, form.cardType);
+    const result = await scanCardImage(uri, form.cardType, profile.geminiApiKey);
 
-    if (result) {
+    if (result.title || result.nameOnCard || result.idNumber || result.expiryDate) {
       setForm((f: any) => ({
         ...f,
         title: result.title || f.title || defaultTitle,
@@ -220,6 +507,61 @@ export default function AddCardScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } else {
       setOcrStatus('failed');
+      setOcrFailReason(result.failReason ?? 'scan-failed');
+    }
+  };
+
+  const rotateImage = async (target: 'front' | 'back') => {
+    const currentUri = target === 'front' ? form.frontImageUri : form.backImageUri;
+    if (!currentUri) return;
+    try {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      const { manipulateAsync, SaveFormat } = await import('expo-image-manipulator');
+      const result = await manipulateAsync(
+        currentUri,
+        [{ rotate: 90 }],
+        { compress: 0.9, format: SaveFormat.JPEG },
+      );
+      setForm((f: any) => ({
+        ...f,
+        [target === 'front' ? 'frontImageUri' : 'backImageUri']: result.uri,
+      }));
+    } catch (e) {
+      console.warn('Rotate failed:', e);
+    }
+  };
+
+  const handleIdChange = (text: string) => {
+    const cleaned = text.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    if (cleaned.startsWith('GHA') || /^[0-9]/.test(cleaned)) {
+      const raw = cleaned.replace(/-/g, '');
+      const prefix = raw.startsWith('GHA') ? 'GHA' : 'GHA';
+      const digits = raw.startsWith('GHA') ? raw.slice(3) : raw;
+      if (digits.length === 0) {
+        setForm((f: any) => ({ ...f, idNumber: prefix }));
+        return;
+      }
+      const p1 = digits.slice(0, 9);
+      const p2 = digits.slice(9, 10);
+      let formatted = `${prefix}-${p1}`;
+      if (p2) formatted += `-${p2}`;
+      setForm((f: any) => ({ ...f, idNumber: formatted }));
+      return;
+    }
+    setForm((f: any) => ({ ...f, idNumber: text }));
+  };
+
+  const handleExpiryChange = (text: string) => {
+    const raw = text.replace(/[^0-9]/g, '').slice(0, 8);
+    if (raw.length <= 4) {
+      setForm((f: any) => ({ ...f, expiryDate: raw }));
+    } else if (raw.length <= 6) {
+      setForm((f: any) => ({ ...f, expiryDate: `${raw.slice(0, 4)}-${raw.slice(4)}` }));
+    } else {
+      setForm((f: any) => ({
+        ...f,
+        expiryDate: `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`,
+      }));
     }
   };
 
@@ -236,14 +578,17 @@ export default function AddCardScreen() {
     }));
     setBarcodeScanned(true);
     setShowScanner(false);
-    setStep(2); // Jump straight to card details review
+    setStep(2);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   const handleCardCapturedInScanner = async (uri: string) => {
     setShowScanner(false);
-    await handleFrontImageCaptured(uri);
-    setStep(2); // Jump straight to details
+    if (scannerTarget === 'back') {
+      setForm((f: any) => ({ ...f, backImageUri: uri }));
+    } else {
+      await handleFrontImageCaptured(uri);
+    }
   };
 
   const handleSave = async () => {
@@ -288,7 +633,6 @@ export default function AddCardScreen() {
     setStep(2);
   };
 
-  // Screen-level gate: if navigated directly while at limit, show blocker
   if (atLimit) {
     return (
       <View style={[styles.root, { backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', padding: 32 }]}>
@@ -317,7 +661,6 @@ export default function AddCardScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      {/* Header */}
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <TouchableOpacity onPress={goBack} style={styles.backBtn}>
           <Ionicons name={step <= 1 ? 'close' : 'arrow-back'} size={24} color={colors.foreground} />
@@ -332,7 +675,6 @@ export default function AddCardScreen() {
         <View style={styles.backBtn} />
       </View>
 
-      {/* Step indicator */}
       <View style={styles.stepRow}>
         {[1, 2, 3].map((i) => (
           <View
@@ -348,38 +690,59 @@ export default function AddCardScreen() {
         ))}
       </View>
 
-
-
-      {/* ── Step 1: Front image + OCR ── */}
+      {/* Step 1: Front image + Spatial OCR */}
       {step === 1 && (
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          ref={step1ScrollRef}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          onContentSizeChange={() => {
+            if (pendingScrollFix.current) {
+              step1ScrollRef.current?.scrollTo({ y: 0, animated: false });
+              pendingScrollFix.current = false;
+            }
+          }}
+        >
           <Text style={[styles.stepTitle, { color: colors.foreground }]}>Front of card</Text>
           <Text style={[styles.stepSub, { color: colors.mutedForeground }]}>
-            Take a photo — we'll auto-fill the details for you
+            Take a photo — global spatial engine will auto-extract card details
           </Text>
 
           {form.frontImageUri ? (
             <View style={styles.imagePreviewWrap}>
-              <Image
-                source={{ uri: form.frontImageUri }}
-                style={styles.imagePreview}
-                contentFit="cover"
-              />
-              <TouchableOpacity
-                onPress={() => {
-                  setForm((f) => ({ ...f, frontImageUri: null }));
-                  setOcrStatus('idle');
-                }}
-                style={[styles.removeImageBtn, { backgroundColor: colors.destructive }]}
-              >
-                <Ionicons name="close" size={16} color="#fff" />
-              </TouchableOpacity>
+              <View style={[styles.cardFrameBorder, { borderColor: colors.primary }]}>
+                <Image
+                  source={{ uri: form.frontImageUri }}
+                  style={styles.imagePreview}
+                  contentFit="cover"
+                />
+              </View>
+              <View style={styles.imageActionButtons}>
+                <TouchableOpacity
+                  onPress={() => rotateImage('front')}
+                  style={[styles.actionRoundBtn, { backgroundColor: 'rgba(0,0,0,0.65)' }]}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="refresh" size={16} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    setForm((f) => ({ ...f, frontImageUri: null }));
+                    setOcrStatus('idle');
+                    setOcrFailReason(null);
+                    pendingScrollFix.current = false;
+                  }}
+                  style={[styles.actionRoundBtn, { backgroundColor: colors.destructive }]}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="close" size={16} color="#fff" />
+                </TouchableOpacity>
+              </View>
 
-              {/* OCR status banner */}
               {ocrStatus === 'scanning' && (
                 <View style={[styles.ocrBanner, { backgroundColor: colors.primary + 'EE' }]}>
                   <ActivityIndicator size="small" color="#fff" />
-                  <Text style={styles.ocrBannerText}>Scanning card with AI…</Text>
+                  <Text style={styles.ocrBannerText}>Processing with Global Spatial Engine…</Text>
                 </View>
               )}
               {ocrStatus === 'done' && (
@@ -389,46 +752,58 @@ export default function AddCardScreen() {
                 </View>
               )}
               {ocrStatus === 'failed' && (
-                <View style={[styles.ocrBanner, { backgroundColor: '#EF4444EE' }]}>
-                  <Ionicons name="alert-circle" size={16} color="#fff" />
-                  <Text style={styles.ocrBannerText}>Scan failed — fill in manually</Text>
+                <View style={[styles.ocrBanner, { backgroundColor: 'rgba(30,58,138,0.92)' }]}>
+                  <Ionicons name="information-circle" size={16} color="#93C5FD" />
+                  <Text style={styles.ocrBannerText}>
+                    Couldn't auto-read card — enter details manually below
+                  </Text>
                 </View>
               )}
             </View>
           ) : (
-            <View
+            <TouchableOpacity
+              onPress={async () => {
+                await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setScannerMode('card_photo');
+                setScannerTarget('front');
+                setShowScanner(true);
+              }}
+              activeOpacity={0.88}
               style={[
                 styles.imagePlaceholder,
-                { borderColor: '#F59E0B', borderWidth: 2, backgroundColor: colors.card, height: 210, borderRadius: 16, position: 'relative' },
+                { borderColor: colors.primary, borderWidth: 2, backgroundColor: colors.card, height: 210, borderRadius: 16, position: 'relative' },
               ]}
             >
-              {/* Corner brackets */}
-              <View style={{ position: 'absolute', top: 8, left: 8, width: 18, height: 18, borderTopWidth: 3, borderLeftWidth: 3, borderColor: '#F59E0B', borderTopLeftRadius: 6 }} />
-              <View style={{ position: 'absolute', top: 8, right: 8, width: 18, height: 18, borderTopWidth: 3, borderRightWidth: 3, borderColor: '#F59E0B', borderTopRightRadius: 6 }} />
-              <View style={{ position: 'absolute', bottom: 8, left: 8, width: 18, height: 18, borderBottomWidth: 3, borderLeftWidth: 3, borderColor: '#F59E0B', borderBottomLeftRadius: 6 }} />
-              <View style={{ position: 'absolute', bottom: 8, right: 8, width: 18, height: 18, borderBottomWidth: 3, borderRightWidth: 3, borderColor: '#F59E0B', borderBottomRightRadius: 6 }} />
+              <View style={{ position: 'absolute', top: 8, left: 8, width: 18, height: 18, borderTopWidth: 3, borderLeftWidth: 3, borderColor: colors.primary, borderTopLeftRadius: 6 }} />
+              <View style={{ position: 'absolute', top: 8, right: 8, width: 18, height: 18, borderTopWidth: 3, borderRightWidth: 3, borderColor: colors.primary, borderTopRightRadius: 6 }} />
+              <View style={{ position: 'absolute', bottom: 8, left: 8, width: 18, height: 18, borderBottomWidth: 3, borderLeftWidth: 3, borderColor: colors.primary, borderBottomLeftRadius: 6 }} />
+              <View style={{ position: 'absolute', bottom: 8, right: 8, width: 18, height: 18, borderBottomWidth: 3, borderRightWidth: 3, borderColor: colors.primary, borderBottomRightRadius: 6 }} />
 
-              <Ionicons name="scan" size={40} color="#F59E0B" />
+              <Ionicons name="scan" size={40} color={colors.primary} />
               <Text style={[styles.imagePlaceholderText, { color: colors.foreground, fontFamily: 'Inter_700Bold', marginTop: 8 }]}>
-                Photograph Card
+                Scan Front of Card
               </Text>
               <Text style={[styles.imagePlaceholderHint, { color: colors.mutedForeground, textAlign: 'center', paddingHorizontal: 20 }]}>
-                85:54 Credit-Card Frame — AI auto-reads title, name, ID & expiry
+                Tap to open viewfinder — auto-clips card edges & extracts details
               </Text>
-            </View>
+            </TouchableOpacity>
           )}
 
           <View style={styles.imageButtons}>
             <TouchableOpacity
               onPress={async () => {
-                const uri = await pickImage('camera');
-                if (uri) await handleFrontImageCaptured(uri);
+                await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setScannerMode('card_photo');
+                setScannerTarget('front');
+                setShowScanner(true);
               }}
-              style={[styles.imgBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+              style={[styles.imgBtn, { backgroundColor: colors.card, borderColor: colors.primary, borderWidth: 1.5 }]}
               activeOpacity={0.8}
             >
-              <Ionicons name="camera" size={22} color={colors.primary} />
-              <Text style={[styles.imgBtnText, { color: colors.foreground }]}>Camera</Text>
+              <Ionicons name="scan" size={22} color={colors.primary} />
+              <Text style={[styles.imgBtnText, { color: colors.foreground, fontFamily: 'Inter_700Bold' }]}>
+                Scan Card
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={async () => {
@@ -443,7 +818,6 @@ export default function AddCardScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Enter Manually Option */}
           <TouchableOpacity
             onPress={() => setStep(3)}
             style={{
@@ -462,30 +836,6 @@ export default function AddCardScreen() {
             </Text>
           </TouchableOpacity>
 
-          {/* Instant Quick Save Option */}
-          {form.frontImageUri && (
-            <TouchableOpacity
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                height: 48,
-                borderRadius: 12,
-                backgroundColor: colors.primary,
-                marginTop: 12,
-              }}
-              onPress={handleSave}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="checkmark-circle" size={20} color={colors.primaryForeground} />
-              <Text style={{ fontSize: 15, fontFamily: 'Inter_700Bold', color: colors.primaryForeground }}>
-                Instant Save Card ({form.title || 'Photo Card'})
-              </Text>
-            </TouchableOpacity>
-          )}
-
-          {/* OCR hint */}
           <View style={[styles.ocrHint, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Ionicons name="sparkles" size={16} color={colors.primary} />
             <Text style={[styles.ocrHintText, { color: colors.mutedForeground }]}>
@@ -495,7 +845,7 @@ export default function AddCardScreen() {
         </ScrollView>
       )}
 
-      {/* ── Step 2: Back image ── */}
+      {/* Step 2: Back image */}
       {step === 2 && (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <Text style={[styles.stepTitle, { color: colors.foreground }]}>Back of card</Text>
@@ -505,42 +855,68 @@ export default function AddCardScreen() {
 
           {form.backImageUri ? (
             <View style={styles.imagePreviewWrap}>
-              <Image
-                source={{ uri: form.backImageUri }}
-                style={styles.imagePreview}
-                contentFit="cover"
-              />
-              <TouchableOpacity
-                onPress={() => setForm((f) => ({ ...f, backImageUri: null }))}
-                style={[styles.removeImageBtn, { backgroundColor: colors.destructive }]}
-              >
-                <Ionicons name="close" size={16} color="#fff" />
-              </TouchableOpacity>
+              <View style={[styles.cardFrameBorder, { borderColor: colors.primary }]}>
+                <Image
+                  source={{ uri: form.backImageUri }}
+                  style={styles.imagePreview}
+                  contentFit="cover"
+                />
+              </View>
+              <View style={styles.imageActionButtons}>
+                <TouchableOpacity
+                  onPress={() => rotateImage('back')}
+                  style={[styles.actionRoundBtn, { backgroundColor: 'rgba(0,0,0,0.65)' }]}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="refresh" size={16} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setForm((f) => ({ ...f, backImageUri: null }))}
+                  style={[styles.actionRoundBtn, { backgroundColor: colors.destructive }]}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="close" size={16} color="#fff" />
+                </TouchableOpacity>
+              </View>
             </View>
           ) : (
-            <View
+            <TouchableOpacity
+              onPress={async () => {
+                await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setScannerMode('card_photo');
+                setScannerTarget('back');
+                setShowScanner(true);
+              }}
+              activeOpacity={0.88}
               style={[
                 styles.imagePlaceholder,
-                { borderColor: colors.border, backgroundColor: colors.card },
+                { borderColor: colors.border, backgroundColor: colors.card, height: 210, borderRadius: 16, position: 'relative' },
               ]}
             >
-              <Ionicons name="card-outline" size={48} color={colors.mutedForeground} />
-              <Text style={[styles.imagePlaceholderText, { color: colors.mutedForeground }]}>
-                No back image
+              <Ionicons name="card-outline" size={44} color={colors.mutedForeground} />
+              <Text style={[styles.imagePlaceholderText, { color: colors.foreground, fontFamily: 'Inter_700Bold', marginTop: 8 }]}>
+                Scan Back of Card
               </Text>
-            </View>
+              <Text style={[styles.imagePlaceholderHint, { color: colors.mutedForeground, textAlign: 'center', paddingHorizontal: 20 }]}>
+                Tap to scan reverse side (optional)
+              </Text>
+            </TouchableOpacity>
           )}
 
           <View style={styles.imageButtons}>
             <TouchableOpacity
               onPress={async () => {
-                const uri = await pickImage('camera');
-                if (uri) setForm((f) => ({ ...f, backImageUri: uri }));
+                await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setScannerMode('card_photo');
+                setScannerTarget('back');
+                setShowScanner(true);
               }}
-              style={[styles.imgBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+              style={[styles.imgBtn, { backgroundColor: colors.card, borderColor: colors.primary, borderWidth: 1.5 }]}
             >
-              <Ionicons name="camera" size={22} color={colors.primary} />
-              <Text style={[styles.imgBtnText, { color: colors.foreground }]}>Camera</Text>
+              <Ionicons name="scan" size={22} color={colors.primary} />
+              <Text style={[styles.imgBtnText, { color: colors.foreground, fontFamily: 'Inter_700Bold' }]}>
+                Scan Back
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={async () => {
@@ -554,7 +930,6 @@ export default function AddCardScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Barcode scanner button */}
           <TouchableOpacity
             onPress={() => setShowScanner(true)}
             style={[
@@ -590,7 +965,7 @@ export default function AddCardScreen() {
         </ScrollView>
       )}
 
-      {/* ── Step 3: Details (pre-filled by OCR) ── */}
+      {/* Step 3: Details review */}
       {step === 3 && (
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -607,7 +982,7 @@ export default function AddCardScreen() {
               <View style={[styles.ocrSuccessBanner, { backgroundColor: '#00C896' + '18', borderColor: '#00C896' + '44' }]}>
                 <Ionicons name="sparkles" size={15} color="#00C896" />
                 <Text style={[styles.ocrSuccessText, { color: '#00C896' }]}>
-                  Auto-filled by AI — review and edit if needed
+                  Auto-filled by Spatial AI — review and edit if needed
                 </Text>
               </View>
             ) : (
@@ -616,7 +991,6 @@ export default function AddCardScreen() {
               </Text>
             )}
 
-            {/* Optional Card Category Selector Pills */}
             <View style={{ marginBottom: 14 }}>
               <Text style={[styles.fieldLabel, { color: colors.mutedForeground, marginBottom: 8 }]}>
                 CARD CATEGORY (OPTIONAL)
@@ -676,7 +1050,15 @@ export default function AddCardScreen() {
                   </View>
                   <TextInput
                     value={form[field.key as keyof FormData] as string}
-                    onChangeText={(v: string) => setForm((f: any) => ({ ...f, [field.key]: v }))}
+                    onChangeText={(v: string) => {
+                      if (field.key === 'idNumber') {
+                        handleIdChange(v);
+                      } else if (field.key === 'expiryDate') {
+                        handleExpiryChange(v);
+                      } else {
+                        setForm((f: any) => ({ ...f, [field.key]: v }));
+                      }
+                    }}
                     placeholder={field.placeholder}
                     placeholderTextColor={colors.mutedForeground}
                     autoCapitalize={field.caps}
@@ -696,7 +1078,7 @@ export default function AddCardScreen() {
         </KeyboardAvoidingView>
       )}
 
-      {/* Bottom actions */}
+      {/* Footer controls */}
       <View
         style={[
           styles.footer,
@@ -764,9 +1146,9 @@ export default function AddCardScreen() {
         )}
       </View>
 
-      {/* Barcode / Smart card scanner overlay */}
       {showScanner && (
         <BarcodeScanner
+          initialMode={scannerMode}
           onScanned={handleBarcodeScan}
           onCardCaptured={handleCardCapturedInScanner}
           onClose={() => setShowScanner(false)}
@@ -798,38 +1180,30 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingBottom: 20 },
   stepTitle: { fontSize: 22, fontFamily: 'Inter_700Bold', marginBottom: 6 },
   stepSub: { fontSize: 14, fontFamily: 'Inter_400Regular', marginBottom: 24, lineHeight: 20 },
-  typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  typeCard: {
-    width: '46%',
-    padding: 18,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    gap: 10,
-    position: 'relative',
-  },
-  typeIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  typeLabel: { fontSize: 14, fontFamily: 'Inter_600SemiBold', textAlign: 'center' },
-  typeCheck: { position: 'absolute', top: 10, right: 10 },
   imagePreviewWrap: { position: 'relative', marginBottom: 20 },
-  imagePreview: {
+  cardFrameBorder: {
     width: '100%',
     aspectRatio: 1.585,
-    borderRadius: 12,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    overflow: 'hidden',
   },
-  removeImageBtn: {
+  imagePreview: {
+    width: '100%',
+    height: '100%',
+  },
+  imageActionButtons: {
     position: 'absolute',
     top: 8,
     right: 8,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    flexDirection: 'row',
+    gap: 8,
+    zIndex: 10,
+  },
+  actionRoundBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },

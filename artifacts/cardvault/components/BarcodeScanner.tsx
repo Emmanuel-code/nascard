@@ -1,20 +1,23 @@
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Dimensions,
   Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
+  TurboModuleRegistry,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { parseBarcodePayload, ScannedPayload, SmartScanSheet } from '@/components/SmartScanSheet';
 import { useColors } from '@/hooks/useColors';
+import { pauseAppLock } from '@/lib/appLock';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export interface BarcodeResult {
   value: string;
@@ -40,6 +43,47 @@ interface Props {
 
 let CameraViewComponent: React.ComponentType<any> | null = null;
 
+// ── Native document scanner (edge detection + auto-capture + crop-adjust UI) ──
+// This is a native module (see setup notes in the project README) — it is
+// loaded lazily so this file still loads fine in environments where the
+// native module hasn't been built in yet (e.g. before the first
+// `expo prebuild` / dev-client rebuild after installing the package, or
+// when running inside Expo Go, which can never load custom native code).
+//
+// IMPORTANT: the plugin's own internals call
+// TurboModuleRegistry.getEnforcing('DocumentScanner'), which THROWS a
+// fatal, uncatchable-by-us Invariant Violation the instant its file is
+// evaluated if the native module isn't compiled into the running binary —
+// and critically, that throw happens during module evaluation, not inside
+// a normal rejected Promise, so it can slip past an ordinary try/catch
+// around `await import(...)`. To avoid ever triggering that crash, we
+// probe first with TurboModuleRegistry's non-throwing `get()`, which
+// simply returns null instead of throwing — and only attempt to import
+// the plugin at all if that probe succeeds.
+function isDocumentScannerLinked(): boolean {
+  try {
+    return TurboModuleRegistry.get('DocumentScanner') != null;
+  } catch {
+    return false;
+  }
+}
+
+let DocumentScannerModule: any = null;
+async function loadDocumentScanner(): Promise<any> {
+  if (!isDocumentScannerLinked()) {
+    return null;
+  }
+  if (DocumentScannerModule) return DocumentScannerModule;
+  try {
+    const mod = await import('react-native-document-scanner-plugin');
+    DocumentScannerModule = mod.default ?? mod;
+    return DocumentScannerModule;
+  } catch (e) {
+    console.warn('react-native-document-scanner-plugin not available:', e);
+    return null;
+  }
+}
+
 export function BarcodeScanner({ onScanned, onCardCaptured, onClose, initialMode = 'barcode' }: Props) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -52,8 +96,77 @@ export function BarcodeScanner({ onScanned, onCardCaptured, onClose, initialMode
   const cameraRef = useRef<any>(null);
   const scanLine = useRef(new Animated.Value(0)).current;
 
-  // Request permission + load camera module
+  // ── Card-photo state ─────────────────────────────────────────────────────
+  // Card capture is fully handed off to the native document scanner — it
+  // owns its own live edge-detection UI, its own auto-capture moment, AND
+  // its own after-capture crop/corner-adjust screen. So this component just
+  // needs to: launch it, wait, then hand the result back (or fall back to
+  // barcode mode if the native module genuinely isn't installed yet).
+  const [documentScannerStatus, setDocumentScannerStatus] = useState<
+    'idle' | 'launching' | 'unavailable'
+  >('idle');
+  const launchedForModeRef = useRef(false);
+
+  const launchDocumentScanner = useCallback(async () => {
+    setDocumentScannerStatus('launching');
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    const DocumentScanner = await loadDocumentScanner();
+    if (!DocumentScanner?.scanDocument) {
+      setDocumentScannerStatus('unavailable');
+      return;
+    }
+
+    try {
+      // NOTE: check react-native-document-scanner-plugin's README for the
+      // exact current option names/shape for your installed version —
+      // native-module APIs like this do shift between releases.
+      const result = await DocumentScanner.scanDocument({
+        maxNumDocuments: 1,
+        croppedImageQuality: 90,
+      });
+
+      const uri: string | undefined = result?.scannedImages?.[0];
+
+      if (result?.status === 'success' && uri && onCardCaptured) {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        onCardCaptured(uri);
+        onClose();
+        return;
+      }
+
+      // User cancelled inside the native scanner UI — just close back out
+      // rather than leaving them stuck on a blank handoff screen.
+      if (result?.status === 'cancel') {
+        onClose();
+        return;
+      }
+
+      // Any other non-success status: let them retry or fall back.
+      setDocumentScannerStatus('idle');
+    } catch (e) {
+      console.warn('Document scan failed:', e);
+      setDocumentScannerStatus('idle');
+    }
+  }, [onCardCaptured, onClose]);
+
+  // Auto-launch as soon as we're in card_photo mode — no need to make the
+  // user tap twice (once for our tab, once for the native scanner's own
+  // shutter) when the native module already does auto-capture itself.
   useEffect(() => {
+    if (mode === 'card_photo' && !launchedForModeRef.current) {
+      launchedForModeRef.current = true;
+      launchDocumentScanner();
+    }
+    if (mode !== 'card_photo') {
+      launchedForModeRef.current = false;
+      setDocumentScannerStatus('idle');
+    }
+  }, [mode, launchDocumentScanner]);
+
+  // Request permission + load camera module (barcode mode only)
+  useEffect(() => {
+    pauseAppLock(180000);
     if (Platform.OS === 'web') {
       setPermission('denied');
       return;
@@ -61,9 +174,21 @@ export function BarcodeScanner({ onScanned, onCardCaptured, onClose, initialMode
     (async () => {
       try {
         const cam = await import('expo-camera');
-        const result = await (cam as any).Camera.requestCameraPermissionsAsync();
+        // expo-camera v17+: permissions are on the module directly, not on the legacy .Camera class
+        const requestFn =
+          (cam as any).requestCameraPermissionsAsync ??
+          (cam as any).Camera?.requestCameraPermissionsAsync?.bind((cam as any).Camera);
+        if (!requestFn) {
+          setPermission('denied');
+          return;
+        }
+        const result = await requestFn();
         if (result?.granted) {
-          CameraViewComponent = cam.CameraView;
+          CameraViewComponent = (cam as any).CameraView ?? null;
+          if (!CameraViewComponent) {
+            setPermission('denied');
+            return;
+          }
           setCameraReady(true);
           setPermission('granted');
         } else {
@@ -100,22 +225,6 @@ export function BarcodeScanner({ onScanned, onCardCaptured, onClose, initialMode
     [scanned, mode],
   );
 
-  const handleCaptureCardPhoto = async () => {
-    if (!cameraRef.current) return;
-    try {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.85,
-        skipProcessing: false,
-      });
-      if (photo?.uri && onCardCaptured) {
-        onCardCaptured(photo.uri);
-      }
-    } catch (e) {
-      console.warn('Card capture failed:', e);
-    }
-  };
-
   const handleAddToVault = (payload: ScannedPayload) => {
     setSmartPayload(null);
     if (onScanned) {
@@ -128,8 +237,8 @@ export function BarcodeScanner({ onScanned, onCardCaptured, onClose, initialMode
     setScanned(false);
   };
 
-  // ── Web / permission denied fallback ──────────────────────────────────────
-  if (Platform.OS === 'web' || permission === 'denied') {
+  // ── Web / permission denied fallback (barcode mode) ────────────────────────
+  if (mode === 'barcode' && (Platform.OS === 'web' || permission === 'denied')) {
     return (
       <View style={[styles.root, { backgroundColor: colors.background }]}>
         <TouchableOpacity onPress={onClose} style={[styles.topClose, { top: insets.top + 12 }]}>
@@ -157,17 +266,79 @@ export function BarcodeScanner({ onScanned, onCardCaptured, onClose, initialMode
     );
   }
 
-  // ── Loading ───────────────────────────────────────────────────────────────
+  // ── Card-photo mode: handoff / fallback screen ──────────────────────────
+  // The native scanner takes over the whole screen itself once launched, so
+  // this only renders during the brief moment before it opens, or if it
+  // genuinely couldn't be loaded (module not built in yet).
+  if (mode === 'card_photo') {
+    if (documentScannerStatus === 'unavailable') {
+      return (
+        <View style={[styles.root, { backgroundColor: colors.background }]}>
+          <TouchableOpacity onPress={onClose} style={[styles.topClose, { top: insets.top + 12 }]}>
+            <Ionicons name="close" size={24} color={colors.foreground} />
+          </TouchableOpacity>
+          <View style={[styles.fallback, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Ionicons name="scan-outline" size={48} color={colors.mutedForeground} />
+            <Text style={[styles.fallbackTitle, { color: colors.foreground }]}>
+              Card Scanner Not Installed
+            </Text>
+            <Text style={[styles.fallbackSub, { color: colors.mutedForeground }]}>
+              The auto-scan module needs a native rebuild before it's available (expo prebuild + a
+              dev-client build). You can still switch to Code / QR mode, or enter card details manually.
+            </Text>
+            <TouchableOpacity
+              onPress={() => {
+                setMode('barcode');
+                setDocumentScannerStatus('idle');
+              }}
+              style={[styles.fallbackBtn, { backgroundColor: colors.primary }]}
+            >
+              <Text style={[styles.fallbackBtnText, { color: colors.primaryForeground }]}>
+                Switch to Code / QR
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={[styles.root, styles.loadingRoot]}>
+        <TouchableOpacity onPress={onClose} style={[styles.topClose, { top: insets.top + 12 }]}>
+          <Ionicons name="close" size={24} color="#fff" />
+        </TouchableOpacity>
+        <View style={styles.loadingRing}>
+          <ActivityIndicator size="small" color="rgba(255,255,255,0.85)" />
+        </View>
+        <Text style={styles.handoffText}>Opening card scanner…</Text>
+        <TouchableOpacity
+          onPress={() => {
+            launchedForModeRef.current = false;
+            setMode('barcode');
+          }}
+          style={{ marginTop: 20 }}
+        >
+          <Text style={styles.handoffSubtext}>Use Code / QR scanner instead</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // ── Loading (barcode camera module) ─────────────────────────────────────
   if (!cameraReady || !CameraViewComponent) {
-    return <View style={[styles.root, { backgroundColor: '#000' }]} />;
+    return (
+      <View style={[styles.root, styles.loadingRoot]}>
+        <View style={styles.loadingRing}>
+          <Ionicons name="camera-outline" size={28} color="rgba(255,255,255,0.6)" />
+        </View>
+      </View>
+    );
   }
 
   const CV = CameraViewComponent;
-  
-  // Dimensions for scanning frames
+
+  // Dimensions for scanning frame
   const BARCODE_BOX = Math.min(SCREEN_WIDTH * 0.72, 280);
-  const CARD_BOX_W = Math.min(SCREEN_WIDTH * 0.88, 340);
-  const CARD_BOX_H = CARD_BOX_W * (54 / 85.6); // Exact ISO ID-1 card aspect ratio
 
   const lineY = scanLine.interpolate({ inputRange: [0, 1], outputRange: [0, BARCODE_BOX - 3] });
 
@@ -178,7 +349,7 @@ export function BarcodeScanner({ onScanned, onCardCaptured, onClose, initialMode
         style={StyleSheet.absoluteFill}
         facing="back"
         enableTorch={torch}
-        onBarcodeScanned={scanned || mode !== 'barcode' ? undefined : handleBarcode}
+        onBarcodeScanned={scanned ? undefined : handleBarcode}
         barcodeScannerSettings={{
           barcodeTypes: [
             'qr', 'code128', 'code39', 'ean13', 'ean8',
@@ -189,7 +360,7 @@ export function BarcodeScanner({ onScanned, onCardCaptured, onClose, initialMode
 
       {/* ── Overlay Viewfinder ── */}
       <View style={styles.overlay} pointerEvents="box-none">
-        
+
         {/* Top Header Bar */}
         <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
           <TouchableOpacity onPress={onClose} style={styles.iconBtn}>
@@ -217,12 +388,10 @@ export function BarcodeScanner({ onScanned, onCardCaptured, onClose, initialMode
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 setMode('card_photo');
               }}
-              style={[styles.modeTab, mode === 'card_photo' && styles.modeTabActive]}
+              style={[styles.modeTab, (mode as ScannerMode) === 'card_photo' && styles.modeTabActive]}
             >
-              <Ionicons name="card-outline" size={15} color={mode === 'card_photo' ? '#000' : '#fff'} />
-              <Text style={[styles.modeTabText, mode === 'card_photo' && styles.modeTabTextActive]}>
-                Card Photo
-              </Text>
+              <Ionicons name="card-outline" size={15} color="#fff" />
+              <Text style={styles.modeTabText}>Card Photo</Text>
             </TouchableOpacity>
           </View>
 
@@ -240,57 +409,27 @@ export function BarcodeScanner({ onScanned, onCardCaptured, onClose, initialMode
 
         {/* Center Frame Viewport */}
         <View style={styles.centerContainer}>
-          {mode === 'barcode' ? (
-            /* Barcode Square Target */
-            <View style={[styles.scanBox, { width: BARCODE_BOX, height: BARCODE_BOX }]}>
-              {(['tl', 'tr', 'bl', 'br'] as const).map((c) => (
-                <View key={c} style={[styles.corner, styles[c]]} />
-              ))}
-              <Animated.View style={[styles.scanLine, { transform: [{ translateY: lineY }] }]} />
-            </View>
-          ) : (
-            /* Physical Card ISO ID-1 Aspect Viewfinder */
-            <View style={[styles.cardBox, { width: CARD_BOX_W, height: CARD_BOX_H }]}>
-              {(['tl', 'tr', 'bl', 'br'] as const).map((c) => (
-                <View key={c} style={[styles.cornerCard, styles[c]]} />
-              ))}
-              <View style={styles.cardCenterGuide}>
-                <Ionicons name="scan-outline" size={32} color="rgba(255,255,255,0.4)" />
-                <Text style={styles.cardGuideText}>Align ID within frame</Text>
-              </View>
-            </View>
-          )}
+          <View style={[styles.scanBox, { width: BARCODE_BOX, height: BARCODE_BOX }]}>
+            {(['tl', 'tr', 'bl', 'br'] as const).map((c) => (
+              <View key={c} style={[styles.corner, styles[c]]} />
+            ))}
+            <Animated.View style={[styles.scanLine, { transform: [{ translateY: lineY }] }]} />
+          </View>
         </View>
 
         {/* Bottom Control Bar */}
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 20 }]}>
-          {mode === 'barcode' ? (
-            <View style={{ alignItems: 'center', gap: 10 }}>
-              <Text style={styles.hint}>
-                Point camera at any pass barcode or QR code
-              </Text>
-              {scanned && (
-                <TouchableOpacity onPress={handleRescan} style={styles.rescanBtn}>
-                  <Ionicons name="refresh" size={16} color="#fff" />
-                  <Text style={styles.rescanText}>Scan again</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ) : (
-            /* Shutter Button for Card Photo Capture */
-            <View style={styles.shutterRow}>
-              <Text style={styles.hint}>
-                Automatic edge clipping & smart OCR extraction
-              </Text>
-              <TouchableOpacity
-                onPress={handleCaptureCardPhoto}
-                style={styles.shutterOuter}
-                activeOpacity={0.8}
-              >
-                <View style={styles.shutterInner} />
+          <View style={{ alignItems: 'center', gap: 10 }}>
+            <Text style={styles.hint}>
+              Point camera at any pass barcode or QR code
+            </Text>
+            {scanned && (
+              <TouchableOpacity onPress={handleRescan} style={styles.rescanBtn}>
+                <Ionicons name="refresh" size={16} color="#fff" />
+                <Text style={styles.rescanText}>Scan again</Text>
               </TouchableOpacity>
-            </View>
-          )}
+            )}
+          </View>
         </View>
 
       </View>
@@ -312,7 +451,29 @@ const CT = 3.5;
 
 const styles = StyleSheet.create({
   root: { ...StyleSheet.absoluteFillObject, zIndex: 100 },
-  topClose: { position: 'absolute', left: 16, zIndex: 10, padding: 8 },
+  loadingRoot: { backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
+  loadingRing: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  handoffText: {
+    marginTop: 18,
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 14,
+    fontFamily: 'Inter_500Medium',
+  },
+  handoffSubtext: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 13,
+    fontFamily: 'Inter_500Medium',
+    textDecorationLine: 'underline',
+  },
+  topClose: { position: 'absolute', left: 16, top: 12, zIndex: 10, padding: 8 },
   fallback: {
     margin: 32,
     marginTop: 100,
@@ -373,26 +534,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: 'rgba(0,0,0,0.1)',
   },
-  cardBox: {
-    position: 'relative',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardCenterGuide: {
-    alignItems: 'center',
-    gap: 8,
-  },
-  cardGuideText: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 12,
-    fontFamily: 'Inter_500Medium',
-  },
   corner: { position: 'absolute', width: CW, height: CW, borderColor: '#F59E0B' },
-  cornerCard: { position: 'absolute', width: CW + 4, height: CW + 4, borderColor: '#38BDF8' },
   tl: { top: 0, left: 0, borderTopWidth: CT, borderLeftWidth: CT, borderTopLeftRadius: 10 },
   tr: { top: 0, right: 0, borderTopWidth: CT, borderRightWidth: CT, borderTopRightRadius: 10 },
   bl: { bottom: 0, left: 0, borderBottomWidth: CT, borderLeftWidth: CT, borderBottomLeftRadius: 10 },
@@ -421,23 +563,4 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.18)',
   },
   rescanText: { color: '#fff', fontSize: 14, fontFamily: 'Inter_500Medium' },
-  shutterRow: {
-    alignItems: 'center',
-    gap: 14,
-  },
-  shutterOuter: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    borderWidth: 4,
-    borderColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  shutterInner: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#FFFFFF',
-  },
 });

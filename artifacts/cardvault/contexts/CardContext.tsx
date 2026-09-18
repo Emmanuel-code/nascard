@@ -1,14 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { Image } from 'react-native';
 import type { Card, ProfileType } from '@/types/card';
 import { getDaysUntilExpiry } from '@/types/card';
 import { uploadCloudBackup, loadCloudPassword } from '@/lib/cloudBackup';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 const CARDS_KEY = '@nascard:cards_v2';
 const CARDS_KEY_LEGACY = '@nascard:cards';
-const DEBOUNCE_MS = 600; // batch rapid state mutations into a single write
+const SEEDED_SAMPLES_KEY = '@nascard:seeded_samples_v1';
+const DEBOUNCE_MS = 600;
+
+// Flip to false to disable/hide demo cards across ALL installs
+const SHOW_DEMO_CARDS = false;
 
 interface CardContextValue {
   cards: Card[];
@@ -36,7 +39,7 @@ const INITIAL_SAMPLE_CARDS: Card[] = [
   {
     id: 'sample-demo-id',
     title: 'Demo Citizen ID Card',
-    orgName: 'Dem                                o National Authority',
+    orgName: 'Demo National Authority',
     nameOnCard: 'Winifred Esinam',
     idNumber: 'DEMO-721948291-A',
     cardType: 'id',
@@ -71,7 +74,7 @@ const INITIAL_SAMPLE_CARDS: Card[] = [
     secondaryColor: '#1D3557',
     accentColor: '#38BDF8',
     expiryDate: '2028-08-31',
-    frontImageUri: null, // Layout WITHOUT photo (uses IC Microchip + Crest)
+    frontImageUri: null,
     backImageUri: null,
     barcodeFormat: 'code128',
     barcodeValue: 'STU20269041',
@@ -97,7 +100,7 @@ const INITIAL_SAMPLE_CARDS: Card[] = [
     secondaryColor: '#022C22',
     accentColor: '#10B981',
     expiryDate: '2026-11-15',
-    frontImageUri: null, // Layout WITHOUT photo (uses VIP Executive Membership layout)
+    frontImageUri: null,
     backImageUri: null,
     barcodeFormat: 'qr',
     barcodeValue: 'VIP882099',
@@ -145,13 +148,11 @@ export function CardProvider({ children }: { children: React.ReactNode }) {
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingCards = useRef<Card[] | null>(null);
 
-  // Schema-versioned load — migrate from legacy key if needed & refresh sample cards
   useEffect(() => {
     async function loadCards() {
       try {
         let raw = await AsyncStorage.getItem(CARDS_KEY);
         if (!raw) {
-          // Migrate from old key if present
           const legacyRaw = await AsyncStorage.getItem(CARDS_KEY_LEGACY);
           if (legacyRaw) {
             raw = legacyRaw;
@@ -160,33 +161,45 @@ export function CardProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
+        let loadedCards: Card[] = [];
         if (raw) {
           const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            // Keep real user cards, replace old sample cards with new demo cards
-            const userCreated = parsed.filter((c: Card) => !c.isSample && !c.id.startsWith('sample-'));
-            const finalCards = [...userCreated, ...INITIAL_SAMPLE_CARDS];
-            setCards(finalCards);
-            await AsyncStorage.setItem(CARDS_KEY, JSON.stringify(finalCards));
-          } else {
-            setCards(INITIAL_SAMPLE_CARDS);
-            await AsyncStorage.setItem(CARDS_KEY, JSON.stringify(INITIAL_SAMPLE_CARDS));
+          if (Array.isArray(parsed)) {
+            loadedCards = parsed;
           }
-        } else {
-          setCards(INITIAL_SAMPLE_CARDS);
-          await AsyncStorage.setItem(CARDS_KEY, JSON.stringify(INITIAL_SAMPLE_CARDS));
         }
+
+        const alreadySeeded = (await AsyncStorage.getItem(SEEDED_SAMPLES_KEY)) === 'true';
+        if (!alreadySeeded) {
+          if (SHOW_DEMO_CARDS) {
+            loadedCards = [...loadedCards, ...INITIAL_SAMPLE_CARDS];
+          }
+          await AsyncStorage.setItem(SEEDED_SAMPLES_KEY, 'true');
+          await AsyncStorage.setItem(CARDS_KEY, JSON.stringify(loadedCards));
+        }
+
+        // Force-filter out demo cards on existing installs if SHOW_DEMO_CARDS is false
+        if (!SHOW_DEMO_CARDS) {
+          loadedCards = loadedCards.filter((c) => !c.isSample && !c.id.startsWith('sample-'));
+        }
+
+        setCards(loadedCards);
       } catch (err) {
         console.warn('[CardContext] Failed to load cards:', err);
-        setCards(INITIAL_SAMPLE_CARDS);
+        setCards([]);
       } finally {
         setIsLoading(false);
       }
     }
     loadCards();
+
+    return () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+      }
+    };
   }, []);
 
-  // Debounced persistence — prevents writing on every rapid keystroke / animation frame
   const persist = useCallback(async (updated: Card[]) => {
     setCards(updated);
     pendingCards.current = updated;
@@ -194,28 +207,30 @@ export function CardProvider({ children }: { children: React.ReactNode }) {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(async () => {
       if (pendingCards.current) {
+        const cardsToSave = pendingCards.current;
+        pendingCards.current = null;
+
         try {
-          await AsyncStorage.setItem(CARDS_KEY, JSON.stringify(pendingCards.current));
+          await AsyncStorage.setItem(CARDS_KEY, JSON.stringify(cardsToSave));
         } catch (err) {
           console.warn('[CardContext] Failed to persist cards:', err);
         }
 
-        // ── Silent Cloud Sync (Pro users with cloud backup enabled) ──────────
-        try {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            const password = await loadCloudPassword();
-            if (password) {
-              uploadCloudBackup(pendingCards.current, password).catch((e) =>
-                console.warn('[CardContext] Background cloud sync failed (will retry next change):', e)
-              );
+        if (isSupabaseConfigured) {
+          try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+              const password = await loadCloudPassword();
+              if (password) {
+                uploadCloudBackup(cardsToSave, password).catch((e) =>
+                  console.warn('[CardContext] Background cloud sync failed:', e)
+                );
+              }
             }
+          } catch {
+            // Ignore background sync errors
           }
-        } catch {
-          // Never throw here — local save is the source of truth
         }
-
-        pendingCards.current = null;
       }
     }, DEBOUNCE_MS);
   }, []);
@@ -267,9 +282,13 @@ export function CardProvider({ children }: { children: React.ReactNode }) {
         .filter((c) => {
           if (!c.expiryDate) return false;
           const days = getDaysUntilExpiry(c.expiryDate);
-          return days <= withinDays;
+          return !isNaN(days) && days <= withinDays;
         })
-        .sort((a, b) => getDaysUntilExpiry(a.expiryDate) - getDaysUntilExpiry(b.expiryDate)),
+        .sort((a, b) => {
+          const dA = getDaysUntilExpiry(a.expiryDate);
+          const dB = getDaysUntilExpiry(b.expiryDate);
+          return (isNaN(dA) ? 0 : dA) - (isNaN(dB) ? 0 : dB);
+        }),
     [cards],
   );
 
@@ -295,7 +314,6 @@ export function CardProvider({ children }: { children: React.ReactNode }) {
         const refreshed = incoming.map((c) => ({ ...c, updatedAt: now }));
         await persist(refreshed);
       } else {
-        // merge: skip any card whose id already exists
         const existingIds = new Set(cards.map((c) => c.id));
         const toAdd = incoming
           .filter((c) => !existingIds.has(c.id))
@@ -314,7 +332,6 @@ export function CardProvider({ children }: { children: React.ReactNode }) {
       const updated = cards.map((c) =>
         c.id === id ? { ...c, isPinned, updatedAt: new Date().toISOString() } : c,
       );
-      // Sort pinned to front
       const sorted = [...updated].sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
       await persist(sorted);
     },
@@ -369,5 +386,9 @@ export function CardProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useCards() {
-  return useContext(CardContext);
+  const context = useContext(CardContext);
+  if (!context || Object.keys(context).length === 0) {
+    throw new Error('useCards must be used within a CardProvider');
+  }
+  return context;
 }

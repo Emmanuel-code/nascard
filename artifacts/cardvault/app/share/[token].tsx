@@ -1,7 +1,8 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Platform,
   ScrollView,
@@ -10,7 +11,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { showCustomAlert } from '@/components/StyledAlert';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCards } from '@/contexts/CardContext';
 import { useColors } from '@/hooks/useColors';
 import type { CardType } from '@/types/card';
 import { formatExpiry, getExpiryStatus, getDaysUntilExpiry } from '@/types/card';
@@ -51,6 +54,9 @@ export default function SharePage() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { addCard, cards } = useCards();
+  const [isSaved, setIsSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
@@ -94,6 +100,38 @@ export default function SharePage() {
     month: 'short',
     day: 'numeric',
   });
+
+  const handleSaveToVault = async () => {
+    if (isSaving || isSaved) return;
+    setIsSaving(true);
+    try {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      await addCard({
+        title: card.title,
+        nameOnCard: card.nameOnCard,
+        idNumber: card.idNumber,
+        expiryDate: card.expiryDate,
+        cardType: card.cardType,
+        profileId: 'personal',
+        frontImageUri: null,
+        backImageUri: null,
+        barcodeFormat: 'qr',
+        barcodeValue: card.idNumber || card.title,
+        notes: `Imported via nascard P2P Peer Share on ${new Date().toLocaleDateString()}`,
+        isPartnerIssued: false,
+      });
+      setIsSaved(true);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      showCustomAlert('Saved to Vault! 🎉', `"${card.title}" is now in your cards tab.`, [
+        { text: 'View Cards', onPress: () => router.push('/(tabs)/cards' as any) },
+        { text: 'OK' },
+      ], { type: 'success', icon: 'checkmark-circle' });
+    } catch {
+      showCustomAlert('Save Failed', 'Unable to save this card to your local vault.', undefined, { type: 'error' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -139,6 +177,26 @@ export default function SharePage() {
           ) : null}
         </View>
 
+        {/* Action Button: One-Tap Save to Vault */}
+        <TouchableOpacity
+          style={[
+            styles.saveVaultBtn,
+            { backgroundColor: isSaved ? '#10B981' : colors.primary },
+          ]}
+          onPress={handleSaveToVault}
+          activeOpacity={0.85}
+          disabled={isSaving || isSaved}
+        >
+          <Ionicons
+            name={isSaved ? 'checkmark-circle' : 'add-circle-outline'}
+            size={20}
+            color="#FFFFFF"
+          />
+          <Text style={styles.saveVaultBtnText}>
+            {isSaved ? 'Saved to Your Vault ✓' : isSaving ? 'Saving…' : 'Add to My nascard Vault'}
+          </Text>
+        </TouchableOpacity>
+
         {/* Fields */}
         <View style={[styles.infoCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {card.idNumber ? (
@@ -177,7 +235,7 @@ export default function SharePage() {
         {/* QR code of this page's URL */}
         {token ? (
           <View style={[styles.qrCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.qrLabel, { color: colors.mutedForeground }]}>QR Code</Text>
+            <Text style={[styles.qrLabel, { color: colors.mutedForeground }]}>P2P Share Code</Text>
             <View style={styles.qrWrap}>
               <QRCode
                 value={`${typeof window !== 'undefined' ? window.location.href : `nascard://share/${token}`}`}
@@ -187,7 +245,7 @@ export default function SharePage() {
               />
             </View>
             <Text style={[styles.qrHint, { color: colors.mutedForeground }]}>
-              Others can scan this to view the shared card
+              Others can scan this to view or import this shared card
             </Text>
           </View>
         ) : null}
@@ -196,7 +254,7 @@ export default function SharePage() {
         <View style={[styles.disclaimer, { backgroundColor: colors.muted, borderColor: colors.border }]}>
           <Ionicons name="information-circle-outline" size={16} color={colors.mutedForeground} />
           <Text style={[styles.disclaimerText, { color: colors.mutedForeground }]}>
-            This is a read-only view shared by the card owner. It does not include images or sensitive verification data.
+            Peer-to-peer sharing lets you store this credential directly into your encrypted personal vault.
           </Text>
         </View>
       </ScrollView>
@@ -234,6 +292,19 @@ const styles = StyleSheet.create({
   heroType: { fontSize: 12, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 1 },
   heroTitle: { fontSize: 22, fontFamily: 'Inter_700Bold', textAlign: 'center' },
   heroName: { fontSize: 15, fontFamily: 'Inter_400Regular' },
+  saveVaultBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  saveVaultBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontFamily: 'Inter_600SemiBold',
+  },
   infoCard: {
     borderRadius: 16,
     borderWidth: 1,

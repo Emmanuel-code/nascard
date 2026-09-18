@@ -30,10 +30,15 @@ export async function encryptCards(cards: Card[], password: string): Promise<str
       // If local file URI on mobile, encode to base64 so it can be restored on another device
       if (Platform.OS !== 'web' && frontUri && frontUri.startsWith('file://')) {
         try {
-          const FS = await import('expo-file-system');
+          let FS: any;
+          try {
+            FS = await import('expo-file-system/legacy');
+          } catch {
+            FS = await import('expo-file-system');
+          }
           const fileInfo = await FS.getInfoAsync(frontUri);
           if (fileInfo.exists && (fileInfo.size || 0) < 1.5 * 1024 * 1024) {
-            const base64 = await FS.readAsStringAsync(frontUri, { encoding: FS.EncodingType.Base64 });
+            const base64 = await FS.readAsStringAsync(frontUri, { encoding: FS.EncodingType?.Base64 ?? 'base64' });
             frontUri = `data:image/jpeg;base64,${base64}`;
           }
         } catch (e) {
@@ -43,10 +48,15 @@ export async function encryptCards(cards: Card[], password: string): Promise<str
 
       if (Platform.OS !== 'web' && backUri && backUri.startsWith('file://')) {
         try {
-          const FS = await import('expo-file-system');
+          let FS: any;
+          try {
+            FS = await import('expo-file-system/legacy');
+          } catch {
+            FS = await import('expo-file-system');
+          }
           const fileInfo = await FS.getInfoAsync(backUri);
           if (fileInfo.exists && (fileInfo.size || 0) < 1.5 * 1024 * 1024) {
-            const base64 = await FS.readAsStringAsync(backUri, { encoding: FS.EncodingType.Base64 });
+            const base64 = await FS.readAsStringAsync(backUri, { encoding: FS.EncodingType?.Base64 ?? 'base64' });
             backUri = `data:image/jpeg;base64,${base64}`;
           }
         } catch (e) {
@@ -102,9 +112,15 @@ export async function exportBackup(cards: Card[], password: string): Promise<voi
     return;
   }
 
-  const FS = await import('expo-file-system');
-  const path = `${FS.cacheDirectory}${filename}`;
-  await FS.writeAsStringAsync(path, json, { encoding: FS.EncodingType.UTF8 });
+  let FS: any;
+  try {
+    FS = await import('expo-file-system/legacy');
+  } catch {
+    FS = await import('expo-file-system');
+  }
+  const cacheDir = FS.cacheDirectory ?? `${require('expo-file-system').cacheDirectory}`;
+  const path = `${cacheDir}${filename}`;
+  await FS.writeAsStringAsync(path, json, { encoding: FS.EncodingType?.UTF8 ?? 'utf8' });
 
   const Sharing = await import('expo-sharing');
   const canShare = await Sharing.isAvailableAsync();
@@ -138,8 +154,13 @@ export async function importBackupFile(): Promise<BackupFile> {
   if (result.canceled || !result.assets?.[0]) throw new Error('No file selected.');
   const asset = result.assets[0];
 
-  const FS = await import('expo-file-system');
-  const text = await FS.readAsStringAsync(asset.uri, { encoding: FS.EncodingType.UTF8 });
+  let FS: any;
+  try {
+    FS = await import('expo-file-system/legacy');
+  } catch {
+    FS = await import('expo-file-system');
+  }
+  const text = await FS.readAsStringAsync(asset.uri, { encoding: FS.EncodingType?.UTF8 ?? 'utf8' });
   try { return JSON.parse(text) as BackupFile; }
   catch { throw new Error('Invalid backup file.'); }
 }

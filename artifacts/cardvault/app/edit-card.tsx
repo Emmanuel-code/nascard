@@ -148,7 +148,25 @@ export default function EditCardScreen() {
           <Field
             label="ID / Card number"
             value={form.idNumber}
-            onChangeText={(v) => set('idNumber', v)}
+            onChangeText={(v) => {
+              const cleaned = v.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+              if (cleaned.startsWith('GHA') || /^[0-9]/.test(cleaned)) {
+                const raw = cleaned.replace(/-/g, '');
+                const prefix = 'GHA';
+                const digits = raw.startsWith('GHA') ? raw.slice(3) : raw;
+                if (digits.length === 0) {
+                  set('idNumber', prefix);
+                  return;
+                }
+                const p1 = digits.slice(0, 9);
+                const p2 = digits.slice(9, 10);
+                let formatted = `${prefix}-${p1}`;
+                if (p2) formatted += `-${p2}`;
+                set('idNumber', formatted);
+                return;
+              }
+              set('idNumber', v);
+            }}
             locked={isFieldLocked(card.cardType, 'idNumber')}
             colors={colors}
             placeholder="Card number"
@@ -158,7 +176,16 @@ export default function EditCardScreen() {
           <Field
             label="Expiry date (YYYY-MM-DD)"
             value={form.expiryDate}
-            onChangeText={(v) => set('expiryDate', v)}
+            onChangeText={(v) => {
+              const raw = v.replace(/[^0-9]/g, '').slice(0, 8);
+              if (raw.length <= 4) {
+                set('expiryDate', raw);
+              } else if (raw.length <= 6) {
+                set('expiryDate', `${raw.slice(0, 4)}-${raw.slice(4)}`);
+              } else {
+                set('expiryDate', `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`);
+              }
+            }}
             locked={isFieldLocked(card.cardType, 'expiryDate')}
             colors={colors}
             placeholder="2027-12-31"

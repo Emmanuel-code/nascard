@@ -5,7 +5,7 @@
  * being sent to Supabase. The server only ever sees an opaque ciphertext string.
  */
 
-import { supabase } from './supabase';
+import { supabase, isSupabaseConfigured } from './supabase';
 import { encryptCards, decryptCards } from './backup';
 import type { Card } from '@/types/card';
 
@@ -32,6 +32,7 @@ export async function clearCloudPassword(): Promise<void> {
  * Cards are encrypted on-device before transmission.
  */
 export async function uploadCloudBackup(cards: Card[], password: string): Promise<void> {
+  if (!isSupabaseConfigured) throw new Error('Cloud backup service is currently not configured.');
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('You must be signed in to back up to the cloud.');
 
@@ -54,6 +55,7 @@ export async function uploadCloudBackup(cards: Card[], password: string): Promis
  * Downloads and decrypts the user's cloud card backup.
  */
 export async function downloadCloudBackup(password: string): Promise<Card[]> {
+  if (!isSupabaseConfigured) throw new Error('Cloud backup service is currently not configured.');
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('You must be signed in to restore from the cloud.');
 
@@ -73,6 +75,7 @@ export async function downloadCloudBackup(password: string): Promise<Card[]> {
  * Gets cloud backup metadata (no decryption needed).
  */
 export async function getCloudBackupInfo(): Promise<{ cardCount: number; updatedAt: string } | null> {
+  if (!isSupabaseConfigured) return null;
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
@@ -90,6 +93,7 @@ export async function getCloudBackupInfo(): Promise<{ cardCount: number; updated
  * Deletes the user's cloud backup permanently.
  */
 export async function deleteCloudBackup(): Promise<void> {
+  if (!isSupabaseConfigured) return;
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;
   await supabase.from('user_card_backups').delete().eq('user_id', user.id);
